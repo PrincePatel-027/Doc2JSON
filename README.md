@@ -8,7 +8,7 @@ Follow these steps to run the Doc2JSON project locally on your machine.
 
 ### Prerequisites
 
-1. **Python 3.8+**: Ensure you have Python installed. You can download it from [python.org](https://www.python.org/downloads/).
+1. **Python 3.8+**: The one-click launcher will try to install Python automatically if it's missing (Windows: `winget`, Mac: Homebrew, Linux: distro package manager). If auto-install is unavailable, install Python manually from [python.org](https://www.python.org/downloads/).
 2. **Tesseract OCR (Optional but Recommended)**: Since this application features image OCR using Tesseract as a local fallback, you will need the actual Tesseract binary installed. 
    - **Windows**: Download the installer from the [UB-Mannheim repository](https://github.com/UB-Mannheim/tesseract/wiki).
    - **Mac**: Run `brew install tesseract`.
@@ -23,7 +23,7 @@ cd Doc2JSON
 ```
 
 **2. One-click start (recommended)**:
-After cloning, just run the starter script. It will automatically create `.venv`, install dependencies, start the backend, and open the frontend in your browser.
+After cloning, just run the starter script. It will automatically install Python (if missing), create `.venv`, install dependencies, start the backend, and open the frontend in your browser.
 
 - **Windows**: Double-click `doc2json-windows.bat`
 - **Mac**: Double-click `doc2json-mac.command`
