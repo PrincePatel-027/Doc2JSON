@@ -1185,17 +1185,6 @@ def format_raw(result, filename, options):
         'metadata': result['metadata'],
         'quality_report': quality,
         'structure': result['structure'],
-        'content': {
-            'full_text': full_text,
-            'total_characters': len(full_text),
-            'total_words': len(full_text.split()),
-            'pages': [{
-                'page_number': p['page_number'],
-                'text': p['text'],
-                'char_count': p['char_count'],
-                'tables': p.get('tables', []),
-            } for p in result['pages']],
-        },
         'checksum': hashlib.md5(full_text.encode()).hexdigest(),
     }
 
@@ -1321,6 +1310,18 @@ def format_conversation(result, filename, options):
     }
 
 
+def _remove_key_recursive(value, key_to_remove):
+    if isinstance(value, dict):
+        return {
+            key: _remove_key_recursive(item, key_to_remove)
+            for key, item in value.items()
+            if key != key_to_remove
+        }
+    if isinstance(value, list):
+        return [_remove_key_recursive(item, key_to_remove) for item in value]
+    return value
+
+
 # =====================================================================
 # TEXTBOOK FORMAT HANDLER -- Structured Textbook JSON via Mistral AI
 # =====================================================================
@@ -1328,11 +1329,10 @@ def format_conversation(result, filename, options):
 TEXTBOOK_SCHEMA_PROMPT = """You are a textbook content extractor. Parse ALL content into the JSON schema below. Return ONLY valid JSON, no markdown fences.
 
 RULES:
-1. "content" is the #1 priority field: capture FULL teaching text for each section. NEVER truncate.
-2. "topics": only named concepts (e.g. "Photosynthesis", "Ohm's Law"). NOT random words.
-3. EXERCISES: extract ALL questions by type. NEVER include answers in question arrays. Answers go in answer_keys.
-4. Use exact section numbering from textbook. Sub-sections (1.4.1) go under parent (1.4).
-5. "count" must match array length for all exercise types.
+1. "topics": only named concepts (e.g. "Photosynthesis", "Ohm's Law"). NOT random words.
+2. EXERCISES: extract ALL questions by type. NEVER include answers in question arrays. Answers go in answer_keys.
+3. Use exact section numbering from textbook. Sub-sections (1.4.1) go under parent (1.4).
+4. "count" must match array length for all exercise types.
 
 JSON SCHEMA:
 {
@@ -1342,7 +1342,6 @@ JSON SCHEMA:
     "sections": [{
       "section_number": "1.1",
       "section_name": "<heading>",
-      "content": "<FULL teaching text - ALL paragraphs, definitions, explanations>",
       "sub_sections": [{"sub_section_number":"1.1.1","sub_section_name":"","content":"<full text>","topics":[],"formulas":[],"key_terms":[{"term":"","definition":""}],"diagrams":[{"figure_id":"","description":"","labels":[]}],"chemical_equations":[],"derivations":[{"title":"","steps":""}],"worked_examples":[{"problem":"","solution":""}]}],
       "topics": [],
       "formulas": ["<formula with units>"],
@@ -1431,13 +1430,12 @@ def _build_schema_prompt(subject_name=''):
     prompt = f"""You are a textbook content extractor. Parse ALL content into the JSON schema below. Return ONLY valid JSON, no markdown fences.
 
 RULES:
-1. "content" is the #1 MANDATORY field: capture the FULL teaching text for EVERY section. NEVER truncate or summarize. Include ALL paragraphs, explanations, definitions, descriptions, and examples.
-2. "topics": only named concepts (e.g. "Photosynthesis", "Ohm's Law", "Index Number"). NOT random words, sentence fragments, or OCR artifacts.
-3. EXERCISES: extract ALL questions by type. NEVER include answers in question arrays. Answers go in answer_keys.
-4. Use exact section numbering from textbook. Sub-sections (1.4.1) go under parent (1.4).
-5. "count" must match array length for all exercise types.
-6. EVERY section MUST have a non-empty "content" field with the complete teaching material.
-7. Do NOT skip any section, subsection, formula, equation, or exercise.
+1. "topics": only named concepts (e.g. "Photosynthesis", "Ohm's Law", "Index Number"). NOT random words, sentence fragments, or OCR artifacts.
+2. EXERCISES: extract ALL questions by type. NEVER include answers in question arrays. Answers go in answer_keys.
+3. Use exact section numbering from textbook. Sub-sections (1.4.1) go under parent (1.4).
+4. "count" must match array length for all exercise types.
+5. EVERY section MUST have a non-empty "content" field with the complete teaching material.
+6. Do NOT skip any section, subsection, formula, equation, or exercise.
 {field_emphasis}
 JSON SCHEMA:
 {{
@@ -1447,7 +1445,6 @@ JSON SCHEMA:
     "sections": [{{
       "section_number": "1.1",
       "section_name": "<heading>",
-      "content": "<FULL teaching text - ALL paragraphs, definitions, explanations. MANDATORY field>",
       "sub_sections": [{{"sub_section_number":"1.1.1","sub_section_name":"","content":"<full text>","topics":[],"formulas":[],"key_terms":[{{"term":"","definition":""}}],"diagrams":[{{"figure_id":"","description":"","labels":[]}}],"chemical_equations":[],"derivations":[{{"title":"","steps":""}}],"worked_examples":[{{"problem":"","solution":""}}]}}],
       "topics": [],
       "formulas": ["<formula with units>"],
@@ -2745,7 +2742,7 @@ def format_textbook(result, filename, options):
                     if field != 'sub_sections':
                         subsec.setdefault(field, copy.deepcopy(default) if isinstance(default, list) else default)
 
-    return {
+    payload = {
         'book_id': book_id,
         'board': board,
         'standard': standard,
@@ -2772,6 +2769,7 @@ def format_textbook(result, filename, options):
         },
         'chapters': final_chapters,
     }
+    return _remove_key_recursive(payload, 'content')
 
 
 FORMAT_HANDLERS = {
