@@ -3,238 +3,129 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Doc2JSON v2 -- Advanced AI Training Data Converter</title>
-    <meta name="description" content="Convert entire books, PDFs, and documents into structured JSON for AI model training. Multi-pass extraction with image and diagram OCR.">
+    <title>Doc2JSON</title>
+    <meta name="description" content="Convert entire books, PDFs, and documents into structured JSON for AI model training.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="bg-grid"></div>
-    <div class="bg-glow bg-glow-1"></div>
-    <div class="bg-glow bg-glow-2"></div>
-
-    <div class="app-container">
-        <!-- Header -->
-        <header class="header">
-            <div class="logo">
-                <div class="logo-icon">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-                        <polyline points="14,2 14,8 20,8"/>
-                        <line x1="16" y1="13" x2="8" y2="13"/>
-                        <line x1="16" y1="17" x2="8" y2="17"/>
-                    </svg>
-                </div>
-                <div>
-                    <h1>Doc2JSON <span class="version-badge">v2</span></h1>
-                    <p class="tagline">Advanced AI Training Data Converter</p>
-                </div>
+    <div class="canvas-root" id="canvasRoot">
+        <header class="topbar">
+            <div class="brand">
+                <h1>Doc<span>2JSON</span></h1>
             </div>
-            <div class="header-badges">
-                <div class="header-badge badge-green">
-                    <span class="pulse-dot"></span>
-                    Ready
-                </div>
-                <div class="header-badge" id="ocrBadge" style="display:none;">
-                    <span class="ocr-dot"></span>
+            <div class="topbar-actions">
+                <span class="docs-link"></span>
+                <div class="status-pill status-ready">Ready</div>
+                <div class="status-pill status-ocr" id="ocrBadge" style="display:none;">
+                    <span class="status-dot"></span>
                     <span id="ocrBadgeText">OCR</span>
                 </div>
             </div>
         </header>
 
-        <!-- Main Content -->
-        <main class="main-grid">
-            <!-- LEFT PANEL -->
-            <section class="panel panel-upload">
-                <div class="panel-header">
-                    <h2>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                            <polyline points="17,8 12,3 7,8"/>
-                            <line x1="12" y1="3" x2="12" y2="15"/>
-                        </svg>
-                        Upload Document
-                    </h2>
+        <main class="workspace" id="workspace">
+            <section class="landing-view" id="landingView">
+                <div class="hero-copy">
+                    
                 </div>
 
-                <!-- Drop Zone -->
-                <div class="drop-zone" id="dropZone">
-                    <div class="drop-zone-content">
-                        <div class="drop-icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-                                <polyline points="14,2 14,8 20,8"/>
-                                <line x1="12" y1="18" x2="12" y2="12"/>
-                                <polyline points="9,15 12,12 15,15"/>
-                            </svg>
-                        </div>
-                        <p class="drop-text">Drag & drop your file here</p>
-                        <p class="drop-subtext">Supports entire books up to 200 MB</p>
-                        <div class="drop-formats">
-                            <span class="format-tag">PDF</span>
-                            <span class="format-tag">TXT</span>
-                            <span class="format-tag">DOCX</span>
-                            <span class="format-tag">MD</span>
-                            <span class="format-tag">CSV</span>
-                            <span class="format-tag">HTML</span>
-                        </div>
-                    </div>
+                <div class="drop-surface" id="dropSurface">
                     <input type="file" id="fileInput" accept=".pdf,.txt,.md,.docx,.csv,.html" hidden>
-                </div>
-
-                <!-- File Info -->
-                <div class="file-info" id="fileInfo" style="display: none;">
-                    <div class="file-info-icon">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-                            <polyline points="14,2 14,8 20,8"/>
-                        </svg>
-                    </div>
-                    <div class="file-info-details">
-                        <span class="file-name" id="fileName"></span>
-                        <span class="file-size" id="fileSize"></span>
-                    </div>
-                    <button class="file-remove" id="fileRemove" title="Remove file">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="18" y1="6" x2="6" y2="18"/>
-                            <line x1="6" y1="6" x2="18" y2="18"/>
-                        </svg>
+                    <button type="button" class="drop-zone" id="dropZone">
+                        <span class="drop-ring-shell">
+                            <span class="drop-ring-inner"></span>
+                            <span class="drop-ring-pulse"></span>
+                        </span>
+                        <span class="drop-primary" id="dropPrimaryText">Click to upload or drag a file anywhere</span>
+                        <span class="drop-secondary" id="dropSecondaryText">PDF, DOCX, TXT, MD, CSV, HTML | Up to 200 MB</span>
                     </button>
                 </div>
 
-                <!-- Configuration -->
-                <div class="config-section">
-                    <h3 class="config-title">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="12" r="3"/>
-                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                        </svg>
-                        Output Configuration
-                    </h3>
+                <div class="selected-file" id="fileInfo" style="display:none;">
+                    <div class="selected-file-item">
+                        <span class="selected-label">Name</span>
+                        <span class="selected-value" id="fileName"></span>
+                    </div>
+                    <div class="selected-file-item">
+                        <span class="selected-label">Size</span>
+                        <span class="selected-value" id="fileSize"></span>
+                    </div>
+                    <button class="file-remove" id="fileRemove" type="button">Remove</button>
+                </div>
+
+                <section class="control-deck">
+                    <div class="control-deck-head">
+                        <h3>Output Configuration</h3>
+                        <p>All backend-compatible controls are preserved.</p>
+                    </div>
 
                     <label class="config-label">Output Format</label>
                     <div class="format-grid" id="formatGrid">
-                        <button class="format-btn active" data-format="chunks">
-                            <span class="format-btn-icon">&#x229E;</span>
+                        <button class="format-btn" data-format="chunks" type="button">
                             <span class="format-btn-name">Chunks</span>
                             <span class="format-btn-desc">RAG / Embeddings</span>
                         </button>
-                        <button class="format-btn" data-format="raw">
-                            <span class="format-btn-icon">&#x1F4C4;</span>
+                        <button class="format-btn active" data-format="raw" type="button">
                             <span class="format-btn-name">Raw</span>
                             <span class="format-btn-desc">Full Document</span>
                         </button>
-                        <button class="format-btn" data-format="paragraphs">
-                            <span class="format-btn-icon">&#x00B6;</span>
+                        <button class="format-btn" data-format="paragraphs" type="button">
                             <span class="format-btn-name">Paragraphs</span>
                             <span class="format-btn-desc">Per Paragraph</span>
                         </button>
-                        <button class="format-btn" data-format="sentences">
-                            <span class="format-btn-icon">&#x2261;</span>
+                        <button class="format-btn" data-format="sentences" type="button">
                             <span class="format-btn-name">Sentences</span>
                             <span class="format-btn-desc">Classification</span>
                         </button>
-                        <button class="format-btn" data-format="jsonl">
-                            <span class="format-btn-icon">&#x27E0;</span>
+                        <button class="format-btn" data-format="jsonl" type="button">
                             <span class="format-btn-name">JSONL</span>
                             <span class="format-btn-desc">Fine-tuning</span>
                         </button>
-                        <button class="format-btn" data-format="conversation">
-                            <span class="format-btn-icon">&#x1F4AC;</span>
+                        <button class="format-btn" data-format="conversation" type="button">
                             <span class="format-btn-name">ChatML</span>
                             <span class="format-btn-desc">Chat Training</span>
                         </button>
-                        <button class="format-btn" data-format="textbook">
-                            <span class="format-btn-icon">&#x1F4DA;</span>
+                        <button class="format-btn" data-format="textbook" type="button">
                             <span class="format-btn-name">Textbook</span>
                             <span class="format-btn-desc">Structured Schema</span>
                         </button>
                     </div>
 
-                    <!-- Mistral API Key -->
                     <div class="api-key-section">
-                        <label class="config-label">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px;">
-                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                            </svg>
-                            Mistral AI API Key
-                        </label>
+                        <label class="config-label">Mistral AI API Key</label>
                         <div class="api-key-row">
-                            <input type="password" id="mistralApiKey" class="input-field api-key-input"
-                                   placeholder="Enter your Mistral API key"
-                                   autocomplete="off">
-                            <button type="button" class="api-key-toggle" id="toggleKeyVis" title="Show/hide key">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                    <circle cx="12" cy="12" r="3"/>
-                                </svg>
-                            </button>
+                            <input type="password" id="mistralApiKey" class="input-field api-key-input" placeholder="Enter your Mistral API key" autocomplete="off">
+                            <button type="button" class="api-key-toggle" id="toggleKeyVis" title="Show/hide key">Show</button>
                         </div>
-                        <p class="api-key-hint">Required for OCR &amp; Textbook structuring. Get a key at <a href="https://console.mistral.ai/" target="_blank" rel="noopener">console.mistral.ai</a></p>
+                        <p class="api-key-hint">Required for OCR and textbook structuring.</p>
                     </div>
 
-                    <div class="api-key-section validator-key-section">
-                        <label class="config-label">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px;">
-                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                                <circle cx="12" cy="7" r="4"/>
-                            </svg>
-                            Groq API Key (AI Validator)
-                        </label>
+                    <div class="api-key-section">
+                        <label class="config-label">Groq API Key (AI Validator)</label>
                         <div class="api-key-row">
-                            <input type="password" id="groqApiKey" class="input-field api-key-input"
-                                   placeholder="Enter your Groq API key"
-                                   autocomplete="off">
-                            <button type="button" class="api-key-toggle" id="toggleGroqVis" title="Show/hide key">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                    <circle cx="12" cy="12" r="3"/>
-                                </svg>
-                            </button>
+                            <input type="password" id="groqApiKey" class="input-field api-key-input" placeholder="Enter your Groq API key" autocomplete="off">
+                            <button type="button" class="api-key-toggle" id="toggleGroqVis" title="Show/hide key">Show</button>
                         </div>
-                        <p class="api-key-hint">Used only for scoring and suggestions in the UI. Original output stays unchanged until you click Implement.</p>
                     </div>
 
-                    <div class="api-key-section validator-key-section">
-                        <label class="config-label">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px;">
-                                <path d="M12 20h9"/>
-                                <path d="M12 4h9"/>
-                                <path d="M3 9h18"/>
-                                <path d="M3 15h18"/>
-                            </svg>
-                            Sarvam API Key (AI Validator)
-                        </label>
+                    <div class="api-key-section">
+                        <label class="config-label">Sarvam API Key (AI Validator)</label>
                         <div class="api-key-row">
-                            <input type="password" id="sarvamApiKey" class="input-field api-key-input"
-                                   placeholder="Enter your Sarvam API key"
-                                   autocomplete="off">
-                            <button type="button" class="api-key-toggle" id="toggleSarvamVis" title="Show/hide key">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                    <circle cx="12" cy="12" r="3"/>
-                                </svg>
-                            </button>
+                            <input type="password" id="sarvamApiKey" class="input-field api-key-input" placeholder="Enter your Sarvam API key" autocomplete="off">
+                            <button type="button" class="api-key-toggle" id="toggleSarvamVis" title="Show/hide key">Show</button>
                         </div>
-                        <p class="api-key-hint">Used together with Groq for simultaneous validation and mutual consensus scoring.</p>
                     </div>
 
-                    <!-- Textbook Metadata Fields (shown when Textbook format is selected) -->
-                    <div class="textbook-meta-section" id="textbookMetaSection" style="display: none;">
-                        <h3 class="config-title" style="margin-top: 12px;">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-                                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-                            </svg>
-                            Textbook Metadata
-                        </h3>
+                    <div class="textbook-meta-section" id="textbookMetaSection" style="display:none;">
+                        <h3 class="sub-section-title">Textbook Metadata</h3>
                         <div class="input-group">
                             <label>Book ID <span class="input-hint">(auto-generated if empty)</span></label>
                             <input type="text" id="tbBookId" class="input-field" placeholder="e.g. gseb-12-commerce-statistics-part-1-en">
                         </div>
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div class="input-grid two-col">
                             <div class="input-group">
                                 <label>Board</label>
                                 <input type="text" id="tbBoard" class="input-field" placeholder="e.g. GSEB, CBSE">
@@ -244,7 +135,7 @@
                                 <input type="text" id="tbStandard" class="input-field" placeholder="e.g. 12">
                             </div>
                         </div>
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div class="input-grid two-col">
                             <div class="input-group">
                                 <label>Stream</label>
                                 <input type="text" id="tbStream" class="input-field" placeholder="e.g. commerce, science">
@@ -254,7 +145,7 @@
                                 <input type="text" id="tbMedium" class="input-field" placeholder="e.g. English, Hindi">
                             </div>
                         </div>
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div class="input-grid two-col">
                             <div class="input-group">
                                 <label>Language Code</label>
                                 <input type="text" id="tbLanguage" class="input-field" value="en" placeholder="e.g. en, hi, gu">
@@ -274,14 +165,8 @@
                         </div>
                     </div>
 
-                    <!-- Advanced Options -->
-                    <div class="advanced-toggle" id="advancedToggle">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon">
-                            <polyline points="6,9 12,15 18,9"/>
-                        </svg>
-                        Advanced Options
-                    </div>
-                    <div class="advanced-options" id="advancedOptions" style="display: none;">
+                    <button class="advanced-toggle" id="advancedToggle" type="button">Advanced Options</button>
+                    <div class="advanced-options" id="advancedOptions" style="display:none;">
                         <div class="input-group">
                             <label>Chunk Size <span class="input-hint">(words)</span></label>
                             <input type="number" id="chunkSize" value="512" min="50" max="8192" class="input-field">
@@ -295,170 +180,188 @@
                             <textarea id="systemPrompt" class="input-field textarea" rows="3" placeholder="You are a knowledgeable assistant. Answer based on the provided content."></textarea>
                         </div>
                     </div>
-                </div>
 
-                <!-- Convert Button -->
-                <button class="convert-btn" id="convertBtn" disabled>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="convert-icon">
-                        <polyline points="16,3 21,3 21,8"/>
-                        <line x1="4" y1="20" x2="21" y2="3"/>
-                        <polyline points="21,16 21,21 16,21"/>
-                        <line x1="15" y1="15" x2="21" y2="21"/>
-                        <line x1="4" y1="4" x2="9" y2="9"/>
-                    </svg>
-                    <span id="convertBtnText">Convert to JSON</span>
-                    <div class="btn-loader" id="btnLoader" style="display:none;">
-                        <div class="spinner"></div>
+                    <button class="convert-btn" id="convertBtn" type="button" disabled>
+                        <span id="convertBtnText">Convert to JSON</span>
+                        <span class="btn-loader" id="btnLoader" style="display:none;"></span>
+                    </button>
+
+                    <div class="processing-log" id="processingLog" style="display:none;">
+                        <div class="log-title">Processing Pipeline</div>
+                        <div class="log-entries" id="logEntries"></div>
                     </div>
-                </button>
-
-                <!-- Processing log -->
-                <div class="processing-log" id="processingLog" style="display:none;">
-                    <div class="log-title">Processing Pipeline</div>
-                    <div class="log-entries" id="logEntries"></div>
-                </div>
+                </section>
             </section>
 
-            <!-- RIGHT PANEL -->
-            <section class="panel panel-output">
-                <div class="panel-header">
-                    <h2>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="16,18 22,12 16,6"/>
-                            <polyline points="8,6 2,12 8,18"/>
-                        </svg>
-                        JSON Output
-                    </h2>
-                    <div class="panel-actions" id="panelActions" style="display:none;">
-                        <button class="action-btn" id="copyBtn" title="Copy JSON">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                            </svg>
-                            Copy
-                        </button>
-                        <button class="action-btn action-btn-primary" id="downloadBtn" title="Download JSON file">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                <polyline points="7,10 12,15 17,10"/>
-                                <line x1="12" y1="15" x2="12" y2="3"/>
-                            </svg>
-                            Download .json
-                        </button>
-                    </div>
-                </div>
+            <section class="result-view" id="resultView" style="display:none;">
+                <aside class="result-meta">
+                    <button class="back-btn" id="convertAnotherBtn" type="button">&larr; Convert another</button>
 
-                <!-- Stats Bar -->
-                <div class="stats-bar" id="statsBar" style="display:none;">
-                    <div class="stat-item" id="statWords">
-                        <span class="stat-value">--</span>
-                        <span class="stat-label">Words</span>
-                    </div>
-                    <div class="stat-item" id="statPages">
-                        <span class="stat-value">--</span>
-                        <span class="stat-label">Pages</span>
-                    </div>
-                    <div class="stat-item" id="statChunks">
-                        <span class="stat-value">--</span>
-                        <span class="stat-label">Chunks</span>
-                    </div>
-                    <div class="stat-item" id="statQuality">
-                        <span class="stat-value">--</span>
-                        <span class="stat-label">Quality</span>
-                    </div>
-                    <div class="stat-item" id="statSize">
-                        <span class="stat-value">--</span>
-                        <span class="stat-label">File Size</span>
-                    </div>
-                </div>
+                    <h3>Document Details</h3>
+                    <dl class="meta-list">
+                        <div>
+                            <dt>Name</dt>
+                            <dd id="metaFileName">-</dd>
+                        </div>
+                        <div>
+                            <dt>Size</dt>
+                            <dd id="metaFileSize">-</dd>
+                        </div>
+                        <div>
+                            <dt>Type</dt>
+                            <dd id="metaFileType">-</dd>
+                        </div>
+                        <div>
+                            <dt>Format</dt>
+                            <dd id="metaFormat">-</dd>
+                        </div>
+                        <div>
+                            <dt>Status</dt>
+                            <dd id="metaStatus">Waiting</dd>
+                        </div>
+                        <div>
+                            <dt>Output File</dt>
+                            <dd id="metaOutput">-</dd>
+                        </div>
+                    </dl>
 
-                <!-- Warnings -->
-                <div class="warnings" id="warnings" style="display:none;"></div>
-
-                <!-- AI Validator -->
-                <div class="validator-panel" id="validatorPanel" style="display:none;">
-                    <div class="validator-header">
-                        <h3>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 2l3.09 6.26L22 9l-5 4.87L18.18 21 12 17.77 5.82 21 7 13.87 2 9l6.91-.74L12 2z"/>
-                            </svg>
-                            AI Validator (Groq + Sarvam)
-                        </h3>
-                        <div class="validator-actions">
-                            <button class="action-btn" id="validateBtn">Validate</button>
-                            <button class="action-btn action-btn-primary" id="implementBtn" disabled>Implement Selected</button>
-                            <button class="action-btn" id="keepChangesBtn" style="display:none;">Keep</button>
-                            <button class="action-btn" id="undoChangesBtn" style="display:none;">Undo</button>
+                    <div class="stats-bar" id="statsBar" style="display:none;">
+                        <div class="stat-item" id="statWords">
+                            <span class="stat-value">--</span>
+                            <span class="stat-label">Words</span>
+                        </div>
+                        <div class="stat-item" id="statPages">
+                            <span class="stat-value">--</span>
+                            <span class="stat-label">Pages</span>
+                        </div>
+                        <div class="stat-item" id="statChunks">
+                            <span class="stat-value">--</span>
+                            <span class="stat-label">Chunks</span>
+                        </div>
+                        <div class="stat-item" id="statQuality">
+                            <span class="stat-value">--</span>
+                            <span class="stat-label">Quality</span>
+                        </div>
+                        <div class="stat-item" id="statSize">
+                            <span class="stat-value">--</span>
+                            <span class="stat-label">File Size</span>
                         </div>
                     </div>
-                    <div class="validator-status" id="validatorStatus">Run validation to score structure, accuracy, and reliability.</div>
-                    <div class="validator-score" id="validatorScore" style="display:none;"></div>
-                    <div class="validator-issues" id="validatorIssues" style="display:none;"></div>
-                    <div class="validator-suggestions" id="validatorSuggestions" style="display:none;"></div>
-                </div>
 
-                <!-- Output Area -->
-                <div class="output-area" id="outputArea">
-                    <div class="empty-state" id="emptyState">
-                        <div class="empty-icon">
-                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-                                <polyline points="14,2 14,8 20,8"/>
-                                <path d="M10 12l2 2 4-4"/>
-                            </svg>
+                    <div class="warnings" id="warnings" style="display:none;"></div>
+
+                    <div class="validator-panel" id="validatorPanel" style="display:none;">
+                        <div class="validator-header">
+                            <h4>AI Validator (Groq + Sarvam)</h4>
+                            <div class="validator-actions">
+                                <button class="action-btn" id="validateBtn" type="button">Validate</button>
+                                <button class="action-btn action-btn-primary" id="implementBtn" type="button" disabled>Implement Selected</button>
+                                <button class="action-btn" id="keepChangesBtn" type="button" style="display:none;">Keep</button>
+                                <button class="action-btn" id="undoChangesBtn" type="button" style="display:none;">Undo</button>
+                            </div>
                         </div>
-                        <p class="empty-title">No output yet</p>
-                        <p class="empty-desc">Upload a document (or entire book!) and convert it to structured JSON for your AI model</p>
+                        <div class="validator-status" id="validatorStatus">Run validation to score structure, accuracy, and reliability.</div>
+                        <div class="validator-score" id="validatorScore" style="display:none;"></div>
+                        <div class="validator-issues" id="validatorIssues" style="display:none;"></div>
+                        <div class="validator-suggestions" id="validatorSuggestions" style="display:none;"></div>
                     </div>
-                    <pre class="json-output" id="jsonOutput" style="display:none;"><code id="jsonCode"></code></pre>
-                </div>
+                </aside>
+
+                <section class="result-output">
+                    <div class="json-shell">
+                        <div class="json-toolbar" id="panelActions" style="display:none;">
+                            <button class="action-btn" id="copyBtn" type="button">Copy JSON</button>
+                            <button class="action-btn action-btn-primary" id="downloadBtn" type="button">Download .json</button>
+                        </div>
+
+                        <div class="output-area" id="outputArea">
+                            <div class="empty-state" id="emptyState">
+                                <p>No output yet.</p>
+                            </div>
+                            <pre class="json-output" id="jsonOutput" style="display:none;"><code id="jsonCode"></code></pre>
+                        </div>
+                    </div>
+                </section>
             </section>
         </main>
 
         <footer class="footer">
-            <p>Doc2JSON v2 -- Powered by Mistral AI OCR + Multi-pass extraction  --  Built for AI training pipelines</p>
+            <p>Doc2JSON v2 | Frontend redesigned as a pristine editorial canvas.</p>
         </footer>
     </div>
 
-    <!-- Toast -->
+    <div class="drag-overlay" id="dragOverlay" aria-hidden="true">
+        <div class="drag-overlay-core">
+            <p>Release to upload</p>
+        </div>
+    </div>
+
     <div class="toast" id="toast"><span id="toastMsg"></span></div>
 
     <script>
-        // ===============================================
-        // State
-        // ===============================================
         let selectedFile = null;
-        let selectedFormat = 'chunks';
+        let selectedFormat = 'raw';
         let lastOutputFile = null;
         let lastJsonText = '';
         let lastValidation = null;
         let applyPreviewBackup = null;
+        let dragDepth = 0;
 
-        // DOM
-        const $ = id => document.getElementById(id);
+        const FORMAT_LABELS = {
+            chunks: 'Chunks',
+            raw: 'Raw',
+            paragraphs: 'Paragraphs',
+            sentences: 'Sentences',
+            jsonl: 'JSONL',
+            conversation: 'ChatML',
+            textbook: 'Textbook'
+        };
+
+        const $ = (id) => document.getElementById(id);
+        const canvasRoot = $('canvasRoot');
+        const dragOverlay = $('dragOverlay');
+        const landingView = $('landingView');
+        const resultView = $('resultView');
+
         const dropZone = $('dropZone');
+        const dropSurface = $('dropSurface');
         const fileInput = $('fileInput');
+        const dropPrimaryText = $('dropPrimaryText');
+        const dropSecondaryText = $('dropSecondaryText');
         const fileInfo = $('fileInfo');
         const fileName = $('fileName');
         const fileSize = $('fileSize');
         const fileRemove = $('fileRemove');
+        const convertAnotherBtn = $('convertAnotherBtn');
+
         const formatGrid = $('formatGrid');
+        const textbookMetaSection = $('textbookMetaSection');
+        const advancedToggle = $('advancedToggle');
+        const advancedOptions = $('advancedOptions');
+
         const convertBtn = $('convertBtn');
         const convertBtnText = $('convertBtnText');
         const btnLoader = $('btnLoader');
+        const processingLog = $('processingLog');
+        const logEntries = $('logEntries');
+
+        const metaFileName = $('metaFileName');
+        const metaFileSize = $('metaFileSize');
+        const metaFileType = $('metaFileType');
+        const metaFormat = $('metaFormat');
+        const metaStatus = $('metaStatus');
+        const metaOutput = $('metaOutput');
+
         const jsonOutput = $('jsonOutput');
         const jsonCode = $('jsonCode');
         const emptyState = $('emptyState');
-        const statsBar = $('statsBar');
         const panelActions = $('panelActions');
         const copyBtn = $('copyBtn');
         const downloadBtn = $('downloadBtn');
-        const advancedToggle = $('advancedToggle');
-        const advancedOptions = $('advancedOptions');
-        const processingLog = $('processingLog');
-        const logEntries = $('logEntries');
+
+        const statsBar = $('statsBar');
         const warningsDiv = $('warnings');
-        const textbookMetaSection = $('textbookMetaSection');
+
         const validatorPanel = $('validatorPanel');
         const validatorStatus = $('validatorStatus');
         const validatorScore = $('validatorScore');
@@ -469,121 +372,63 @@
         const keepChangesBtn = $('keepChangesBtn');
         const undoChangesBtn = $('undoChangesBtn');
 
-        // ===============================================
-        // Check OCR status on load
-        // ===============================================
-        fetch('/api/status').then(r => r.json()).then(data => {
-            const badge = $('ocrBadge');
-            badge.style.display = 'flex';
-            if (data.mistral_sdk) {
-                badge.classList.add('badge-green');
-                $('ocrBadgeText').textContent = 'Mistral OCR';
-            } else if (data.tesseract) {
-                badge.classList.add('badge-amber');
-                $('ocrBadgeText').textContent = 'Tesseract Only';
-            } else {
-                badge.classList.add('badge-amber');
-                $('ocrBadgeText').textContent = 'No OCR';
+        function showLandingView() {
+            landingView.style.display = 'flex';
+            resultView.style.display = 'none';
+        }
+
+        function showResultView() {
+            landingView.style.display = 'none';
+            resultView.style.display = 'grid';
+        }
+
+        function formatBytes(bytes) {
+            if (!bytes) {
+                return '0 B';
             }
-        }).catch(() => {});
-
-        // Load saved API keys from localStorage
-        const savedMistralKey = localStorage.getItem('mistral_api_key') || '';
-        if (savedMistralKey) $('mistralApiKey').value = savedMistralKey;
-        const savedGroqKey = localStorage.getItem('groq_api_key') || '';
-        if (savedGroqKey) $('groqApiKey').value = savedGroqKey;
-        const savedSarvamKey = localStorage.getItem('sarvam_api_key') || '';
-        if (savedSarvamKey) $('sarvamApiKey').value = savedSarvamKey;
-
-        // Toggle API key visibility
-        function setupToggle(btnId, inputId) {
-            $(btnId).addEventListener('click', () => {
-                const inp = $(inputId);
-                inp.type = inp.type === 'password' ? 'text' : 'password';
-            });
-        }
-        setupToggle('toggleKeyVis', 'mistralApiKey');
-        setupToggle('toggleGroqVis', 'groqApiKey');
-        setupToggle('toggleSarvamVis', 'sarvamApiKey');
-
-        // Save API keys on change
-        $('mistralApiKey').addEventListener('input', (e) => localStorage.setItem('mistral_api_key', e.target.value));
-        $('groqApiKey').addEventListener('input', (e) => localStorage.setItem('groq_api_key', e.target.value));
-        $('sarvamApiKey').addEventListener('input', (e) => localStorage.setItem('sarvam_api_key', e.target.value));
-
-        // ===============================================
-        // File Upload
-        // ===============================================
-        dropZone.addEventListener('click', () => fileInput.click());
-        dropZone.addEventListener('dragover', e => {
-            e.preventDefault(); dropZone.classList.add('drag-over');
-        });
-        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-        dropZone.addEventListener('drop', e => {
-            e.preventDefault(); dropZone.classList.remove('drag-over');
-            if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-        });
-        fileInput.addEventListener('change', () => {
-            if (fileInput.files.length) handleFile(fileInput.files[0]);
-        });
-
-        function handleFile(file) {
-            selectedFile = file;
-            fileName.textContent = file.name;
-            fileSize.textContent = formatBytes(file.size);
-            fileInfo.style.display = 'flex';
-            dropZone.style.display = 'none';
-            convertBtn.disabled = false;
+            const k = 1024;
+            const units = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + units[i];
         }
 
-        fileRemove.addEventListener('click', () => {
-            selectedFile = null; fileInput.value = '';
-            fileInfo.style.display = 'none';
-            dropZone.style.display = 'flex';
-            convertBtn.disabled = true;
-            setValidatorIdleState();
-            validatorPanel.style.display = 'none';
-        });
-
-        function formatBytes(b) {
-            if (b === 0) return '0 B';
-            const k = 1024, s = ['B','KB','MB','GB'];
-            const i = Math.floor(Math.log(b) / Math.log(k));
-            return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
+        function detectFileType(file) {
+            if (!file) {
+                return '-';
+            }
+            if (file.type) {
+                return file.type;
+            }
+            const split = file.name.split('.');
+            if (split.length < 2) {
+                return 'unknown';
+            }
+            return '.' + split[split.length - 1].toLowerCase();
         }
 
-        // ===============================================
-        // Format Selection
-        // ===============================================
-        formatGrid.addEventListener('click', e => {
-            const btn = e.target.closest('.format-btn');
-            if (!btn) return;
-            formatGrid.querySelectorAll('.format-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            selectedFormat = btn.dataset.format;
-            // Show/hide textbook metadata fields
-            textbookMetaSection.style.display = selectedFormat === 'textbook' ? 'block' : 'none';
-        });
+        function setCanvasDragging(isDragging) {
+            canvasRoot.classList.toggle('is-dragging', isDragging);
+            dragOverlay.classList.toggle('active', isDragging);
+            dropZone.classList.toggle('drag-over', isDragging);
+        }
 
-        // ===============================================
-        // Advanced Options
-        // ===============================================
-        advancedToggle.addEventListener('click', () => {
-            const open = advancedOptions.style.display !== 'none';
-            advancedOptions.style.display = open ? 'none' : 'block';
-            advancedToggle.classList.toggle('open', !open);
-        });
+        function setProcessingVisual(isProcessing) {
+            canvasRoot.classList.toggle('is-processing', isProcessing);
+            dropZone.classList.toggle('is-processing', isProcessing);
 
-        // ===============================================
-        // Processing Log
-        // ===============================================
-        function logStep(text, status = 'running') {
-            processingLog.style.display = 'block';
-            const entry = document.createElement('div');
-            entry.className = `log-entry log-${status}`;
-            entry.innerHTML = `<span class="log-dot"></span> ${text}`;
-            logEntries.appendChild(entry);
-            logEntries.scrollTop = logEntries.scrollHeight;
+            if (isProcessing) {
+                dropPrimaryText.textContent = 'Structuring data...';
+                dropSecondaryText.textContent = 'Building clean JSON from your document';
+                return;
+            }
+
+            if (selectedFile) {
+                dropPrimaryText.textContent = 'Ready to convert';
+                dropSecondaryText.textContent = selectedFile.name;
+            } else {
+                dropPrimaryText.textContent = 'Click to upload or drag a file anywhere';
+                dropSecondaryText.textContent = 'PDF, DOCX, TXT, MD, CSV, HTML | Up to 200 MB';
+            }
         }
 
         function clearLog() {
@@ -591,19 +436,277 @@
             processingLog.style.display = 'none';
         }
 
-        // ===============================================
-        // Convert
-        // ===============================================
+        function logStep(text, status = 'running') {
+            processingLog.style.display = 'block';
+            const row = document.createElement('div');
+            row.className = 'log-entry log-' + status;
+            row.innerHTML = '<span class="log-dot"></span>' + text;
+            logEntries.appendChild(row);
+            logEntries.scrollTop = logEntries.scrollHeight;
+        }
+
+        function setMetaDefaults() {
+            metaFileName.textContent = '-';
+            metaFileSize.textContent = '-';
+            metaFileType.textContent = '-';
+            metaFormat.textContent = FORMAT_LABELS[selectedFormat] || selectedFormat;
+            metaStatus.textContent = 'Waiting';
+            metaOutput.textContent = '-';
+        }
+
+        function resetSelectedFile() {
+            selectedFile = null;
+            fileInput.value = '';
+            fileInfo.style.display = 'none';
+            convertBtn.disabled = true;
+            setProcessingVisual(false);
+        }
+
+        function resetWorkflow() {
+            resetSelectedFile();
+            lastOutputFile = null;
+            lastJsonText = '';
+            applyPreviewBackup = null;
+
+            jsonOutput.style.display = 'none';
+            jsonCode.textContent = '';
+            emptyState.style.display = 'grid';
+            panelActions.style.display = 'none';
+            statsBar.style.display = 'none';
+            warningsDiv.style.display = 'none';
+            warningsDiv.innerHTML = '';
+
+            setValidatorIdleState();
+            validatorPanel.style.display = 'none';
+            setMetaDefaults();
+            showLandingView();
+        }
+
+        function handleFile(file) {
+            selectedFile = file;
+            fileName.textContent = file.name;
+            fileSize.textContent = formatBytes(file.size);
+            fileInfo.style.display = 'grid';
+            convertBtn.disabled = false;
+            setProcessingVisual(false);
+
+            metaFileName.textContent = file.name;
+            metaFileSize.textContent = formatBytes(file.size);
+            metaFileType.textContent = detectFileType(file);
+            metaFormat.textContent = FORMAT_LABELS[selectedFormat] || selectedFormat;
+            metaStatus.textContent = 'Ready';
+
+            showLandingView();
+        }
+
+        function setupToggle(buttonId, inputId) {
+            const button = $(buttonId);
+            const input = $(inputId);
+            button.addEventListener('click', () => {
+                const hidden = input.type === 'password';
+                input.type = hidden ? 'text' : 'password';
+                button.textContent = hidden ? 'Hide' : 'Show';
+            });
+        }
+
+        function initializeApiKeys() {
+            const savedMistralKey = localStorage.getItem('mistral_api_key') || '';
+            const savedGroqKey = localStorage.getItem('groq_api_key') || '';
+            const savedSarvamKey = localStorage.getItem('sarvam_api_key') || '';
+
+            $('mistralApiKey').value = savedMistralKey;
+            $('groqApiKey').value = savedGroqKey;
+            $('sarvamApiKey').value = savedSarvamKey;
+
+            setupToggle('toggleKeyVis', 'mistralApiKey');
+            setupToggle('toggleGroqVis', 'groqApiKey');
+            setupToggle('toggleSarvamVis', 'sarvamApiKey');
+
+            $('mistralApiKey').addEventListener('input', (e) => localStorage.setItem('mistral_api_key', e.target.value));
+            $('groqApiKey').addEventListener('input', (e) => localStorage.setItem('groq_api_key', e.target.value));
+            $('sarvamApiKey').addEventListener('input', (e) => localStorage.setItem('sarvam_api_key', e.target.value));
+        }
+
+        function initializeOcrBadge() {
+            fetch('/api/status')
+                .then((res) => res.json())
+                .then((data) => {
+                    const badge = $('ocrBadge');
+                    const text = $('ocrBadgeText');
+                    badge.style.display = 'inline-flex';
+
+                    if (data.mistral_sdk) {
+                        badge.classList.add('ocr-mistral');
+                        text.textContent = 'Mistral OCR';
+                    } else if (data.tesseract) {
+                        badge.classList.add('ocr-fallback');
+                        text.textContent = 'Tesseract OCR';
+                    } else {
+                        badge.classList.add('ocr-fallback');
+                        text.textContent = 'No OCR';
+                    }
+                })
+                .catch(() => {
+                    // Keep silent if status endpoint is unavailable.
+                });
+        }
+
+        function hasFiles(event) {
+            if (!event.dataTransfer) {
+                return false;
+            }
+            return Array.from(event.dataTransfer.types || []).includes('Files');
+        }
+
+        window.addEventListener('dragenter', (event) => {
+            if (!hasFiles(event)) {
+                return;
+            }
+            event.preventDefault();
+            dragDepth += 1;
+            setCanvasDragging(true);
+        });
+
+        window.addEventListener('dragover', (event) => {
+            if (hasFiles(event)) {
+                event.preventDefault();
+            }
+        });
+
+        window.addEventListener('dragleave', (event) => {
+            if (!hasFiles(event)) {
+                return;
+            }
+            event.preventDefault();
+            dragDepth = Math.max(0, dragDepth - 1);
+            if (dragDepth === 0) {
+                setCanvasDragging(false);
+            }
+        });
+
+        window.addEventListener('drop', (event) => {
+            if (!hasFiles(event)) {
+                return;
+            }
+            event.preventDefault();
+            dragDepth = 0;
+            setCanvasDragging(false);
+            if (event.dataTransfer.files.length > 0) {
+                handleFile(event.dataTransfer.files[0]);
+            }
+        });
+
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropSurface.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropSurface.addEventListener('dragleave', (event) => {
+            if (!dropSurface.contains(event.relatedTarget)) {
+                dropZone.classList.remove('drag-over');
+            }
+        });
+
+        dropSurface.addEventListener('drop', (event) => {
+            event.preventDefault();
+            dropZone.classList.remove('drag-over');
+            if (event.dataTransfer.files.length > 0) {
+                handleFile(event.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                handleFile(fileInput.files[0]);
+            }
+        });
+
+        fileRemove.addEventListener('click', () => {
+            resetSelectedFile();
+            setValidatorIdleState();
+            validatorPanel.style.display = 'none';
+        });
+
+        convertAnotherBtn.addEventListener('click', () => {
+            resetWorkflow();
+        });
+
+        formatGrid.addEventListener('click', (event) => {
+            const button = event.target.closest('.format-btn');
+            if (!button) {
+                return;
+            }
+
+            formatGrid.querySelectorAll('.format-btn').forEach((btn) => btn.classList.remove('active'));
+            button.classList.add('active');
+            selectedFormat = button.dataset.format;
+            textbookMetaSection.style.display = selectedFormat === 'textbook' ? 'block' : 'none';
+            metaFormat.textContent = FORMAT_LABELS[selectedFormat] || selectedFormat;
+        });
+
+        advancedToggle.addEventListener('click', () => {
+            const isOpen = advancedOptions.style.display !== 'none';
+            advancedOptions.style.display = isOpen ? 'none' : 'block';
+            advancedToggle.classList.toggle('open', !isOpen);
+        });
+
+        function setStatValue(id, value, label) {
+            const element = $(id);
+            element.querySelector('.stat-value').textContent = value;
+            element.querySelector('.stat-label').textContent = label;
+        }
+
+        function escapeHtml(text) {
+            return String(text || '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function syntaxHighlight(text) {
+            const escaped = escapeHtml(text);
+            return escaped.replace(
+                /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"\s*:|"(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+                (token) => {
+                    let cls = 'json-number';
+                    if (token.startsWith('"') && token.endsWith(':')) {
+                        cls = 'json-key';
+                    } else if (token.startsWith('"')) {
+                        cls = 'json-string';
+                    } else if (token === 'true' || token === 'false') {
+                        cls = 'json-boolean';
+                    } else if (token === 'null') {
+                        cls = 'json-null';
+                    }
+                    return '<span class="' + cls + '">' + token + '</span>';
+                }
+            );
+        }
+
+        function renderJson(text) {
+            jsonCode.innerHTML = syntaxHighlight(text);
+        }
+
         convertBtn.addEventListener('click', async () => {
-            if (!selectedFile) return;
+            if (!selectedFile) {
+                return;
+            }
 
             convertBtn.disabled = true;
-            convertBtnText.textContent = 'Processing...';
-            btnLoader.style.display = 'flex';
+            convertBtnText.textContent = 'Structuring Data';
+            btnLoader.style.display = 'inline-flex';
+
             warningsDiv.style.display = 'none';
             warningsDiv.innerHTML = '';
             setValidatorIdleState();
             applyPreviewBackup = null;
+
+            metaStatus.textContent = 'Processing';
+            setProcessingVisual(true);
 
             clearLog();
             logStep('Uploading document...');
@@ -618,9 +721,10 @@
             fd.append('system_prompt', $('systemPrompt').value);
             fd.append('extract_images', 'false');
             fd.append('include_base64', 'false');
-            if (mistralKey) fd.append('mistral_api_key', mistralKey);
+            if (mistralKey) {
+                fd.append('mistral_api_key', mistralKey);
+            }
 
-            // Textbook metadata
             if (selectedFormat === 'textbook') {
                 fd.append('book_id', $('tbBookId').value.trim());
                 fd.append('board', $('tbBoard').value.trim());
@@ -637,155 +741,151 @@
                 if (selectedFormat === 'textbook') {
                     logStep('Textbook structuring mode active...');
                     if (mistralKey) {
-                        logStep('Mistral AI will structure chapters, sections & exercises...');
+                        logStep('Mistral AI will structure chapters, sections, and exercises...');
                     } else {
-                        logStep('Using rule-based structuring (add Mistral key for better results)', 'done');
+                        logStep('Using rule-based structuring (add Mistral key for stronger output)', 'done');
                     }
                 } else if (mistralKey) {
-                    logStep('Mistral AI OCR engine active -- best-in-class extraction...');
+                    logStep('Mistral AI OCR engine active...');
                 } else {
                     logStep('Multi-pass extraction running (PyMuPDF + pdfplumber)...');
-                    logStep('Tip: Add a Mistral API key for world-class OCR accuracy', 'done');
+                    logStep('Tip: Add a Mistral API key for stronger OCR accuracy', 'done');
                 }
-                const res = await fetch('/api/convert', { method: 'POST', body: fd });
-                const data = await res.json();
+
+                const response = await fetch('/api/convert', {
+                    method: 'POST',
+                    body: fd,
+                });
+                const data = await response.json();
 
                 if (data.error) {
                     logStep('Error: ' + data.error, 'error');
+                    metaStatus.textContent = 'Failed';
                     showToast('Error: ' + data.error);
                     return;
                 }
 
                 logStep('Extraction complete!', 'done');
-                logStep(`Quality score: ${(data.stats.quality_score * 100).toFixed(1)}%`, 'done');
+                logStep('Quality score: ' + ((data.stats.quality_score || 0) * 100).toFixed(1) + '%', 'done');
+
                 if (data.stats.chapters_detected > 0) {
-                    logStep(`Detected ${data.stats.chapters_detected} chapters`, 'done');
+                    logStep('Detected ' + data.stats.chapters_detected + ' chapters', 'done');
                 }
                 if (data.stats.total_chapters > 0) {
-                    logStep(`Structured ${data.stats.total_chapters} chapters in textbook format`, 'done');
+                    logStep('Structured ' + data.stats.total_chapters + ' chapters in textbook format', 'done');
                 }
 
-                // Show output
                 lastOutputFile = data.output_file;
-                const isJsonl = selectedFormat === 'jsonl';
-
                 if (typeof data.preview === 'string') {
                     lastJsonText = data.preview;
                 } else {
                     lastJsonText = JSON.stringify(data.preview, null, 2);
                 }
 
-                jsonCode.textContent = lastJsonText;
+                renderJson(lastJsonText);
                 jsonOutput.style.display = 'block';
                 emptyState.style.display = 'none';
                 panelActions.style.display = 'flex';
 
-                // Stats
-                const s = data.stats;
-                statsBar.style.display = 'flex';
-                setStatValue('statWords', s.total_words?.toLocaleString() ?? '--', 'Words');
-                setStatValue('statPages', s.total_pages?.toLocaleString() ?? '--', 'Pages');
-                setStatValue('statQuality', ((s.quality_score || 0) * 100).toFixed(0) + '%', 'Quality');
+                metaFileName.textContent = selectedFile.name;
+                metaFileSize.textContent = formatBytes(selectedFile.size);
+                metaFileType.textContent = detectFileType(selectedFile);
+                metaFormat.textContent = FORMAT_LABELS[selectedFormat] || selectedFormat;
+                metaStatus.textContent = 'Success';
+                metaOutput.textContent = data.output_file || '-';
+
+                const stats = data.stats || {};
+                statsBar.style.display = 'grid';
+
+                setStatValue('statWords', stats.total_words != null ? stats.total_words.toLocaleString() : '--', 'Words');
+                setStatValue('statPages', stats.total_pages != null ? stats.total_pages.toLocaleString() : '--', 'Pages');
+                setStatValue('statQuality', ((stats.quality_score || 0) * 100).toFixed(0) + '%', 'Quality');
                 setStatValue('statSize', data.output_size_human || '--', 'File Size');
 
-                // Dynamic chunk stat
-                if (s.total_chapters != null)
-                    setStatValue('statChunks', s.total_chapters, 'Chapters');
-                else if (s.total_chunks != null)
-                    setStatValue('statChunks', s.total_chunks, 'Chunks');
-                else if (s.total_paragraphs != null)
-                    setStatValue('statChunks', s.total_paragraphs, 'Paragraphs');
-                else if (s.total_sentences != null)
-                    setStatValue('statChunks', s.total_sentences, 'Sentences');
-                else if (s.total_conversations != null)
-                    setStatValue('statChunks', s.total_conversations, 'Conversations');
-                else if (s.total_lines != null)
-                    setStatValue('statChunks', s.total_lines, 'Lines');
-                else
+                if (stats.total_chapters != null) {
+                    setStatValue('statChunks', stats.total_chapters, 'Chapters');
+                } else if (stats.total_chunks != null) {
+                    setStatValue('statChunks', stats.total_chunks, 'Chunks');
+                } else if (stats.total_paragraphs != null) {
+                    setStatValue('statChunks', stats.total_paragraphs, 'Paragraphs');
+                } else if (stats.total_sentences != null) {
+                    setStatValue('statChunks', stats.total_sentences, 'Sentences');
+                } else if (stats.total_conversations != null) {
+                    setStatValue('statChunks', stats.total_conversations, 'Conversations');
+                } else if (stats.total_lines != null) {
+                    setStatValue('statChunks', stats.total_lines, 'Lines');
+                } else {
                     setStatValue('statChunks', '--', 'Items');
+                }
 
-                // Warnings
-                if (s.warnings && s.warnings.length > 0) {
-                    warningsDiv.style.display = 'block';
-                    s.warnings.forEach(w => {
-                        const div = document.createElement('div');
-                        div.className = 'warning-item';
-                        div.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> ${w}`;
-                        warningsDiv.appendChild(div);
+                if (Array.isArray(stats.warnings) && stats.warnings.length > 0) {
+                    warningsDiv.style.display = 'grid';
+                    stats.warnings.forEach((warning) => {
+                        const item = document.createElement('div');
+                        item.className = 'warning-item';
+                        item.textContent = warning;
+                        warningsDiv.appendChild(item);
                     });
                 }
 
                 validatorPanel.style.display = 'block';
                 validatorStatus.textContent = 'Run validation to score this output and get improvement suggestions.';
+                showResultView();
+
                 if ($('groqApiKey').value.trim() && $('sarvamApiKey').value.trim()) {
                     runValidation(true);
                 }
 
-
-
-                showToast('Conversion complete!');
-
-            } catch (err) {
-                logStep('Error: ' + err.message, 'error');
-                showToast('Error: ' + err.message);
+                showToast('Conversion complete');
+            } catch (error) {
+                logStep('Error: ' + error.message, 'error');
+                metaStatus.textContent = 'Failed';
+                showToast('Error: ' + error.message);
             } finally {
-                convertBtn.disabled = false;
+                convertBtn.disabled = !selectedFile;
                 convertBtnText.textContent = 'Convert to JSON';
                 btnLoader.style.display = 'none';
+                setProcessingVisual(false);
             }
         });
 
-        function setStatValue(id, value, label) {
-            const el = $(id);
-            el.querySelector('.stat-value').textContent = value;
-            el.querySelector('.stat-label').textContent = label;
-        }
-
-        // ===============================================
-        // Copy
-        // ===============================================
         copyBtn.addEventListener('click', async () => {
+            if (!lastJsonText) {
+                showToast('No JSON to copy');
+                return;
+            }
             try {
                 await navigator.clipboard.writeText(lastJsonText);
-                showToast('Copied to clipboard!');
-            } catch { showToast('Copy failed'); }
+                showToast('Copied to clipboard');
+            } catch {
+                showToast('Copy failed');
+            }
         });
 
-        // ===============================================
-        // Download -- proper .json file download
-        // ===============================================
         downloadBtn.addEventListener('click', () => {
-            if (!lastOutputFile) return;
-            // Create an invisible <a> with download attribute
-            const a = document.createElement('a');
-            a.href = '/api/download/' + encodeURIComponent(lastOutputFile);
-            a.download = lastOutputFile;  // forces browser to save-as
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            if (!lastOutputFile) {
+                showToast('No file to download');
+                return;
+            }
+            const anchor = document.createElement('a');
+            anchor.href = '/api/download/' + encodeURIComponent(lastOutputFile);
+            anchor.download = lastOutputFile;
+            document.body.appendChild(anchor);
+            anchor.click();
+            document.body.removeChild(anchor);
             showToast('Downloading ' + lastOutputFile);
         });
-
-        // ===============================================
-        // AI Validator (Groq + Sarvam)
-        // ===============================================
-        function escapeHtml(text) {
-            return String(text || '')
-                .replaceAll('&', '&amp;')
-                .replaceAll('<', '&lt;')
-                .replaceAll('>', '&gt;')
-                .replaceAll('"', '&quot;')
-                .replaceAll("'", '&#39;');
-        }
 
         function setValidatorIdleState() {
             lastValidation = null;
             implementBtn.disabled = true;
             keepChangesBtn.style.display = 'none';
             undoChangesBtn.style.display = 'none';
+
             validatorScore.style.display = 'none';
             validatorIssues.style.display = 'none';
             validatorSuggestions.style.display = 'none';
+
             validatorScore.innerHTML = '';
             validatorIssues.innerHTML = '';
             validatorSuggestions.innerHTML = '';
@@ -793,16 +893,18 @@
         }
 
         function selectedSuggestions() {
-            if (!lastValidation || !Array.isArray(lastValidation.suggestions)) return [];
+            if (!lastValidation || !Array.isArray(lastValidation.suggestions)) {
+                return [];
+            }
 
-            const selectedIndexes = Array.from(
+            const indexes = Array.from(
                 validatorSuggestions.querySelectorAll('.suggestion-check:checked')
-            ).map(cb => Number(cb.dataset.index));
+            ).map((cb) => Number(cb.dataset.index));
 
-            return selectedIndexes
-                .filter(i => Number.isFinite(i) && i >= 0 && i < lastValidation.suggestions.length)
-                .map(i => lastValidation.suggestions[i])
-                .filter(s => s && Array.isArray(s.operations) && s.operations.length > 0);
+            return indexes
+                .filter((i) => Number.isFinite(i) && i >= 0 && i < lastValidation.suggestions.length)
+                .map((i) => lastValidation.suggestions[i])
+                .filter((s) => s && Array.isArray(s.operations) && s.operations.length > 0);
         }
 
         function refreshImplementState() {
@@ -815,7 +917,7 @@
             const score = Number(validator.score || 0);
             const scoreClass = score >= 8 ? 'score-good' : (score >= 6 ? 'score-mid' : 'score-bad');
 
-            validatorScore.style.display = 'block';
+            validatorScore.style.display = 'grid';
             validatorScore.innerHTML = `
                 <div class="validator-score-main ${scoreClass}">${score.toFixed(1)}/10</div>
                 <div class="validator-score-breakdown">
@@ -828,9 +930,9 @@
 
             const issues = Array.isArray(validator.issues) ? validator.issues : [];
             if (issues.length > 0) {
-                validatorIssues.style.display = 'block';
+                validatorIssues.style.display = 'grid';
                 validatorIssues.innerHTML = issues
-                    .map(issue => `<div class="validator-issue">${escapeHtml(issue)}</div>`)
+                    .map((issue) => `<div class="validator-issue">${escapeHtml(issue)}</div>`)
                     .join('');
             } else {
                 validatorIssues.style.display = 'none';
@@ -838,22 +940,24 @@
             }
 
             const suggestions = Array.isArray(validator.suggestions) ? validator.suggestions : [];
-            const actionable = suggestions.filter(s => Array.isArray(s.operations) && s.operations.length > 0).length;
+            const actionable = suggestions.filter((s) => Array.isArray(s.operations) && s.operations.length > 0).length;
+
             if (suggestions.length > 0) {
-                validatorSuggestions.style.display = 'block';
-                validatorSuggestions.innerHTML = suggestions.map((s, idx) => {
-                    const opCount = Array.isArray(s.operations) ? s.operations.length : 0;
+                validatorSuggestions.style.display = 'grid';
+                validatorSuggestions.innerHTML = suggestions.map((suggestion, idx) => {
+                    const opCount = Array.isArray(suggestion.operations) ? suggestion.operations.length : 0;
                     const disabled = opCount === 0 ? 'disabled' : '';
                     const checked = opCount > 0 ? 'checked' : '';
+
                     return `
                         <label class="validator-suggestion ${opCount === 0 ? 'suggestion-readonly' : ''}">
                             <div class="suggestion-head">
                                 <input type="checkbox" class="suggestion-check" data-index="${idx}" ${checked} ${disabled}>
-                                <span class="suggestion-title">${escapeHtml(s.title || `Suggestion ${idx + 1}`)}</span>
+                                <span class="suggestion-title">${escapeHtml(suggestion.title || `Suggestion ${idx + 1}`)}</span>
                                 <span class="suggestion-op-count">${opCount} op${opCount === 1 ? '' : 's'}</span>
                             </div>
-                            <div class="suggestion-reason">${escapeHtml(s.reason || '')}</div>
-                            <div class="suggestion-impact">Impact: ${escapeHtml(s.expected_impact || 'Improves output quality')}</div>
+                            <div class="suggestion-reason">${escapeHtml(suggestion.reason || '')}</div>
+                            <div class="suggestion-impact">Impact: ${escapeHtml(suggestion.expected_impact || 'Improves output quality')}</div>
                         </label>
                     `;
                 }).join('');
@@ -866,33 +970,41 @@
             const decisionMode = responseData.decision_mode || 'single';
             const providerErrors = responseData.provider_errors || {};
             const providerParts = Object.values(individual)
-                .map(v => `${v.provider || 'provider'}:${Number(v.score || 0).toFixed(1)}`)
+                .map((v) => `${v.provider || 'provider'}:${Number(v.score || 0).toFixed(1)}`)
                 .join(' | ');
+
             validatorStatus.textContent = decisionMode === 'mutual'
                 ? `Mutual validation complete (${providerParts}).`
                 : `Single-provider validation complete (${providerParts || (validator.provider || 'provider')}).`;
+
             if (Object.keys(providerErrors).length > 0) {
                 const errorParts = Object.entries(providerErrors)
                     .map(([k, v]) => `${k}: ${String(v).slice(0, 120)}`)
                     .join(' | ');
                 validatorStatus.textContent += ` Provider note: ${errorParts}`;
             }
+
             implementBtn.disabled = actionable === 0;
             refreshImplementState();
         }
 
         async function runValidation(isAuto = false) {
             if (!lastOutputFile) {
-                if (!isAuto) showToast('Convert a file first');
+                if (!isAuto) {
+                    showToast('Convert a file first');
+                }
                 return;
             }
 
             const groqKey = $('groqApiKey').value.trim();
             const sarvamKey = $('sarvamApiKey').value.trim();
+
             if (!groqKey || !sarvamKey) {
                 validatorPanel.style.display = 'block';
                 validatorStatus.textContent = 'Enter both Groq and Sarvam API keys for mutual validation.';
-                if (!isAuto) showToast('Both Groq and Sarvam keys are required');
+                if (!isAuto) {
+                    showToast('Both Groq and Sarvam keys are required');
+                }
                 return;
             }
 
@@ -917,15 +1029,21 @@
                 const data = await res.json();
                 if (data.error) {
                     validatorStatus.textContent = 'Validation failed: ' + data.error;
-                    if (!isAuto) showToast('Validation failed');
+                    if (!isAuto) {
+                        showToast('Validation failed');
+                    }
                     return;
                 }
 
                 renderValidation(data.validator || {}, data);
-                if (!isAuto) showToast('Validation complete');
-            } catch (err) {
-                validatorStatus.textContent = 'Validation failed: ' + err.message;
-                if (!isAuto) showToast('Validation failed');
+                if (!isAuto) {
+                    showToast('Validation complete');
+                }
+            } catch (error) {
+                validatorStatus.textContent = 'Validation failed: ' + error.message;
+                if (!isAuto) {
+                    showToast('Validation failed');
+                }
             } finally {
                 validateBtn.disabled = false;
             }
@@ -974,14 +1092,15 @@
                 } else {
                     lastJsonText = JSON.stringify(data.preview, null, 2);
                 }
-                jsonCode.textContent = lastJsonText;
+                renderJson(lastJsonText);
+                metaOutput.textContent = lastOutputFile;
 
                 keepChangesBtn.style.display = 'inline-flex';
                 undoChangesBtn.style.display = 'inline-flex';
-                validatorStatus.textContent = `Applied ${data.applied_count || 0} suggestion(s). Review preview and choose Keep or Undo.`;
+                validatorStatus.textContent = 'Applied ' + (data.applied_count || 0) + ' suggestion(s). Review preview and choose Keep or Undo.';
                 showToast('Applied suggestions to new output file');
-            } catch (err) {
-                validatorStatus.textContent = 'Apply failed: ' + err.message;
+            } catch (error) {
+                validatorStatus.textContent = 'Apply failed: ' + error.message;
                 showToast('Apply failed');
             } finally {
                 refreshImplementState();
@@ -991,8 +1110,8 @@
         validateBtn.addEventListener('click', () => runValidation(false));
         implementBtn.addEventListener('click', implementSelectedSuggestions);
 
-        validatorSuggestions.addEventListener('change', (e) => {
-            if (e.target.classList.contains('suggestion-check')) {
+        validatorSuggestions.addEventListener('change', (event) => {
+            if (event.target.classList.contains('suggestion-check')) {
                 refreshImplementState();
             }
         });
@@ -1005,10 +1124,13 @@
         });
 
         undoChangesBtn.addEventListener('click', () => {
-            if (!applyPreviewBackup) return;
+            if (!applyPreviewBackup) {
+                return;
+            }
             lastOutputFile = applyPreviewBackup.outputFile;
             lastJsonText = applyPreviewBackup.jsonText;
-            jsonCode.textContent = lastJsonText;
+            renderJson(lastJsonText);
+            metaOutput.textContent = lastOutputFile;
             applyPreviewBackup = null;
             keepChangesBtn.style.display = 'none';
             undoChangesBtn.style.display = 'none';
@@ -1016,15 +1138,19 @@
             showToast('Preview reverted');
         });
 
-        // ===============================================
-        // Toast
-        // ===============================================
         function showToast(msg) {
-            const t = $('toast');
+            const toast = $('toast');
             $('toastMsg').textContent = msg;
-            t.classList.add('show');
-            setTimeout(() => t.classList.remove('show'), 3500);
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2800);
         }
+
+        initializeApiKeys();
+        initializeOcrBadge();
+        setMetaDefaults();
+        setValidatorIdleState();
+        showLandingView();
+        clearLog();
     </script>
 </body>
 </html>

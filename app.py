@@ -12,6 +12,7 @@ import uuid
 import base64
 import io
 import math
+import time
 import logging
 import copy
 from datetime import datetime, timezone
@@ -224,8 +225,14 @@ class DocumentProcessor:
         log.info("Pass 1/3: PyMuPDF extraction...")
         pass_mu = self._pymupdf_extract()
 
-        log.info("Pass 2/3: pdfplumber extraction...")
-        pass_plumber = self._pdfplumber_extract()
+        if self.mistral_client:
+            # When Mistral OCR is available, skip full pdfplumber text (Mistral is superior)
+            # Only extract tables from pdfplumber for speed
+            log.info("Pass 2/3: pdfplumber tables only (Mistral OCR will handle text)...")
+            pass_plumber = self._pdfplumber_tables_only()
+        else:
+            log.info("Pass 2/3: pdfplumber extraction...")
+            pass_plumber = self._pdfplumber_extract()
 
         log.info("Pass 3/3: Merging & scoring pages...")
         self.pages = self._merge_passes(pass_mu, pass_plumber)
@@ -284,6 +291,28 @@ class DocumentProcessor:
                     })
         except Exception as e:
             log.warning(f"pdfplumber failed: {e}")
+        return pages
+
+    def _pdfplumber_tables_only(self):
+        """Lightweight pdfplumber pass: extract only tables, skip text extraction.
+        Used when Mistral OCR is available as the primary text source."""
+        pages = []
+        try:
+            with pdfplumber.open(self.filepath) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    tables = []
+                    try:
+                        tables = page.extract_tables() or []
+                    except Exception:
+                        pass
+                    pages.append({
+                        'page_number': i + 1,
+                        'text': '',
+                        'char_count': 0,
+                        'tables': tables,
+                    })
+        except Exception as e:
+            log.warning(f"pdfplumber tables-only failed: {e}")
         return pages
 
     # -- Merge passes --------------------------------------------------
@@ -820,7 +849,7 @@ class DocumentProcessor:
         text = re.sub(r'[ \t]+', ' ', text)               # collapse spaces
         text = re.sub(r' \n', '\n', text)                 # trailing space
         text = re.sub(r'\n{4,}', '\n\n\n', text)          # excess blank lines
-        text = re.sub(r'(\S)\n(\S)', r'\1 \2', text)      # join broken lines in paragraphs
+        text = re.sub(r'([a-z,;])\n([a-zA-Z])', r'\1 \2', text)  # join mid-sentence broken lines only
         # But preserve paragraph separators (double newlines)
         text = re.sub(r'\n\n\n+', '\n\n', text)
         return text.strip()
@@ -1348,6 +1377,111 @@ JSON SCHEMA:
 Extract EVERY section, ALL exercises, ALL formulas/equations/derivations. NEVER skip content."""
 
 
+def _build_schema_prompt(subject_name=''):
+    """Build a subject-adaptive system prompt for textbook structuring.
+    Strengthens content extraction and adds subject-specific field emphasis."""
+    subj = (subject_name or '').lower()
+
+    # Subject-specific emphasis
+    if any(s in subj for s in ['chemistry', 'chemical']):
+        field_emphasis = (
+            '\nCRITICAL FIELDS for Chemistry:\n'
+            '- "chemical_equations": Extract ALL balanced equations with conditions (temp, catalyst, pressure)\n'
+            '- "formulas": Include ALL formulas with units (molar mass, stoichiometry, concentrations)\n'
+            '- "key_terms": IUPAC names, nomenclature rules, element properties, periodic trends\n'
+            '- "derivations": Reaction mechanisms, electron transfer processes, equilibrium derivations\n'
+            '- "worked_examples": ALL numerical problems with mole calculations, titrations, etc.\n'
+        )
+    elif any(s in subj for s in ['physics', 'physical']):
+        field_emphasis = (
+            '\nCRITICAL FIELDS for Physics:\n'
+            '- "formulas": Extract ALL formulas with SI units and dimensional analysis\n'
+            '- "derivations": Step-by-step derivations of laws and equations (COMPLETE, not summarized)\n'
+            '- "worked_examples": ALL numerical solved examples with given data and full solutions\n'
+            '- "diagrams": Circuit diagrams, ray diagrams, force diagrams, graphs with labels\n'
+            '- "key_terms": Laws, principles, constants with their numerical values and units\n'
+        )
+    elif any(s in subj for s in ['math', 'algebra', 'geometry', 'calculus', 'trigonometry']):
+        field_emphasis = (
+            '\nCRITICAL FIELDS for Mathematics:\n'
+            '- "formulas": ALL formulas, identities, and equations\n'
+            '- "derivations": Complete theorem proofs and step-by-step derivations (FULL text)\n'
+            '- "worked_examples": ALL solved examples with detailed step-by-step solutions\n'
+            '- "key_terms": Theorem statements, definitions, corollaries, axioms\n'
+        )
+    elif any(s in subj for s in ['statistic']):
+        field_emphasis = (
+            '\nCRITICAL FIELDS for Statistics:\n'
+            '- "formulas": ALL statistical formulas with complete notation explanations\n'
+            '- "worked_examples": ALL numerical examples with detailed step-by-step calculations\n'
+            '- "key_terms": Statistical measures, index types, method names with definitions\n'
+            '- "derivations": Formula derivations and proof of properties\n'
+        )
+    elif any(s in subj for s in ['biology', 'botany', 'zoology']):
+        field_emphasis = (
+            '\nCRITICAL FIELDS for Biology:\n'
+            '- "diagrams": ALL labeled diagram descriptions with parts listed\n'
+            '- "key_terms": Classifications, taxonomic hierarchies, scientific names with definitions\n'
+            '- "content": Process descriptions (photosynthesis, respiration, cell division) in FULL\n'
+            '- "sub_sections": Difference tables, life cycles, genetic crosses\n'
+        )
+    else:
+        field_emphasis = '\nExtract ALL fields thoroughly for each section.\n'
+
+    prompt = f"""You are a textbook content extractor. Parse ALL content into the JSON schema below. Return ONLY valid JSON, no markdown fences.
+
+RULES:
+1. "content" is the #1 MANDATORY field: capture the FULL teaching text for EVERY section. NEVER truncate or summarize. Include ALL paragraphs, explanations, definitions, descriptions, and examples.
+2. "topics": only named concepts (e.g. "Photosynthesis", "Ohm's Law", "Index Number"). NOT random words, sentence fragments, or OCR artifacts.
+3. EXERCISES: extract ALL questions by type. NEVER include answers in question arrays. Answers go in answer_keys.
+4. Use exact section numbering from textbook. Sub-sections (1.4.1) go under parent (1.4).
+5. "count" must match array length for all exercise types.
+6. EVERY section MUST have a non-empty "content" field with the complete teaching material.
+7. Do NOT skip any section, subsection, formula, equation, or exercise.
+{field_emphasis}
+JSON SCHEMA:
+{{
+  "chapters": [{{
+    "chapter_number": 1,
+    "chapter_name": "<full title as printed>",
+    "sections": [{{
+      "section_number": "1.1",
+      "section_name": "<heading>",
+      "content": "<FULL teaching text - ALL paragraphs, definitions, explanations. MANDATORY field>",
+      "sub_sections": [{{"sub_section_number":"1.1.1","sub_section_name":"","content":"<full text>","topics":[],"formulas":[],"key_terms":[{{"term":"","definition":""}}],"diagrams":[{{"figure_id":"","description":"","labels":[]}}],"chemical_equations":[],"derivations":[{{"title":"","steps":""}}],"worked_examples":[{{"problem":"","solution":""}}]}}],
+      "topics": [],
+      "formulas": ["<formula with units>"],
+      "key_terms": [{{"term":"","definition":""}}],
+      "diagrams": [{{"figure_id":"Fig 1.1","description":"what it shows","labels":["part1"]}}],
+      "chemical_equations": [],
+      "derivations": [{{"title":"","steps":"<full derivation>"}}],
+      "worked_examples": [{{"problem":"","solution":""}}]
+    }}],
+    "textbook_page_start": null, "textbook_page_end": null,
+    "introduction": "<intro paragraphs>",
+    "exercises": {{
+      "mcq":{{"count":0,"questions":[{{"question":"","options":"(A)...(B)...(C)...(D)..."}}]}},
+      "assertion_reason":{{"count":0,"questions":[]}},
+      "fill_in_the_blanks":{{"count":0,"questions":[]}},
+      "true_false":{{"count":0,"questions":[]}},
+      "match_the_following":{{"count":0,"questions":[]}},
+      "very_short_answer":{{"count":0,"questions":[]}},
+      "short_answer":{{"count":0,"questions":[]}},
+      "long_answer":{{"count":0,"questions":[]}},
+      "numerical_problems":{{"count":0,"questions":[]}},
+      "diagram_based":{{"count":0,"questions":[]}},
+      "hots":{{"count":0,"questions":[]}},
+      "activity_based":{{"count":0,"questions":[]}}
+    }},
+    "answer_keys":{{"exercise_answers":[]}},
+    "learning_objectives": [],
+    "chapter_summary":{{"key_definitions":[],"important_laws":[],"important_reactions":[],"nature_points":[],"importance_points":[]}}
+  }}]
+}}
+
+Extract EVERY section, ALL exercises, ALL formulas/equations/derivations. NEVER skip content."""
+    return prompt
+
 
 def _call_mistral_for_structuring(mistral_client, text_chunk, system_prompt=None, prompt_prefix=''):
     """Send text to Mistral AI for structured textbook parsing.
@@ -1357,9 +1491,11 @@ def _call_mistral_for_structuring(mistral_client, text_chunk, system_prompt=None
 
     user_content = f'{prompt_prefix}\n\nHere is the extracted textbook text:\n\n{text_chunk}' if prompt_prefix else f'Here is the extracted textbook text:\n\n{text_chunk}'
 
+    log.info(f'Mistral API call: {len(user_content)} chars input, system prompt {len(system_prompt)} chars')
     max_retries = 2
     for attempt in range(max_retries + 1):
         try:
+            t0 = time.time()
             resp = mistral_client.chat.complete(
                 model='mistral-large-latest',
                 messages=[
@@ -1370,6 +1506,7 @@ def _call_mistral_for_structuring(mistral_client, text_chunk, system_prompt=None
                 temperature=0.0,
                 max_tokens=16384,
             )
+            elapsed = time.time() - t0
             content = resp.choices[0].message.content.strip()
             # Try to fix truncated JSON
             if content and not content.endswith('}'):
@@ -1378,7 +1515,7 @@ def _call_mistral_for_structuring(mistral_client, text_chunk, system_prompt=None
                 open_brackets = content.count('[') - content.count(']')
                 content += ']' * max(open_brackets, 0) + '}' * max(open_braces, 0)
             parsed = json.loads(content)
-            log.info(f'Mistral structuring OK: {len(content)} chars, {len(str(parsed))} parsed')
+            log.info(f'Mistral structuring OK in {elapsed:.1f}s: {len(content)} chars response')
             return parsed
         except json.JSONDecodeError as e:
             log.warning(f'Mistral returned invalid JSON (attempt {attempt + 1}): {e}')
@@ -1386,8 +1523,9 @@ def _call_mistral_for_structuring(mistral_client, text_chunk, system_prompt=None
                 continue
             return None
         except Exception as e:
+            elapsed = time.time() - t0 if 't0' in dir() else 0
             if attempt < max_retries:
-                log.warning(f'Mistral structuring attempt {attempt + 1} failed: {e}, retrying...')
+                log.warning(f'Mistral structuring attempt {attempt + 1} failed after {elapsed:.1f}s: {e}, retrying...')
                 continue
             log.warning(f'Mistral structuring failed after {max_retries + 1} attempts: {e}')
             return None
@@ -1834,9 +1972,11 @@ def _clean_topics(topics):
         'this', 'that', 'these', 'those', 'when', 'where', 'which', 'who', 'what',
         'how', 'why', 'but', 'and', 'or', 'not', 'no', 'yes', 'so', 'also', 'hence',
         'thus', 'since', 'because', 'therefore', 'however', 'moreover', 'furthermore',
-        'less', 'more', 'here', 'atmost', 'once',
+        'less', 'more', 'here', 'atmost', 'once', 'both', 'general', 'putting',
         'another', 'some', 'sometimes', 'unless', 'ata', 'its', 'two', 'three',
-        'proper', 'important', 'necessary', 'effect',
+        'proper', 'important', 'necessary', 'effect', 'following', 'given', 'above',
+        'below', 'certain', 'respective', 'using', 'obtained', 'found', 'known',
+        'note', 'purpose', 'case', 'either', 'neither', 'only', 'any', 'each',
     }
     # Scientific terms that MUST be preserved even if short
     science_terms = {
@@ -1895,12 +2035,22 @@ def _clean_topics(topics):
         ]
         is_fragment = False
         for starter in fragment_starters:
-            if t.startswith(starter) and len(t) > 60:
-                # Long sentences starting with these are likely content, not topics
+            if t.startswith(starter) and len(t) > 35:
                 is_fragment = True
                 break
 
         if is_fragment:
+            continue
+
+        # Skip topics ending with truncation indicators (incomplete sentences)
+        ending_garbage = {'this', 'the', 'a', 'an', 'its', 'is', 'are', 'was', 'were',
+                          'of', 'in', 'to', 'for', 'and', 'or', 'but', 'that', 'which'}
+        last_word = t.rstrip('.,;:!? ').split()[-1].lower() if t.strip() else ''
+        if last_word in ending_garbage and len(t.split()) > 3:
+            continue
+
+        # Skip topics containing formula fragments or OCR noise
+        if re.search(r'[=<>]{2,}|^\d+[pP]\s*=|^1[pP]\s*=|^[-+*/=]+$', t):
             continue
 
         cleaned.append(t)
@@ -2099,6 +2249,182 @@ def _build_fallback_chapters(result):
     return chapters
 
 
+EXERCISE_EXTRACTION_PROMPT = """You are an exercise extractor. Extract ALL exercises/questions from the given textbook text into the JSON schema below. Return ONLY valid JSON, no markdown fences.
+
+RULES:
+1. Classify each question into its correct type (MCQ, fill-in-blanks, true-false, short answer, etc.)
+2. NEVER include answers in question arrays. Answers go in answer_keys.
+3. Extract the COMPLETE question text including any data tables or given values.
+4. "count" must match array length for all exercise types.
+5. Look for numbered questions, lettered options, blanks (___), True/False statements.
+
+JSON SCHEMA:
+{
+  "exercises": {
+    "mcq":{"count":0,"questions":[{"question":"","options":"(A)...(B)...(C)...(D)..."}]},
+    "assertion_reason":{"count":0,"questions":[]},
+    "fill_in_the_blanks":{"count":0,"questions":[]},
+    "true_false":{"count":0,"questions":[]},
+    "match_the_following":{"count":0,"questions":[]},
+    "very_short_answer":{"count":0,"questions":[]},
+    "short_answer":{"count":0,"questions":[]},
+    "long_answer":{"count":0,"questions":[]},
+    "numerical_problems":{"count":0,"questions":[]},
+    "diagram_based":{"count":0,"questions":[]},
+    "hots":{"count":0,"questions":[]},
+    "activity_based":{"count":0,"questions":[]}
+  },
+  "answer_keys":{"exercise_answers":[]}
+}
+
+Extract EVERY question. Do not skip any."""
+
+
+def _process_segment(client, chapter_hint, seg_text, seg_idx, total_segments,
+                     subject_hints, subject_name, board, standard, ex_ranges_str,
+                     schema_prompt, target_chunk_size):
+    """Process a single chapter segment through Mistral AI. Thread-safe."""
+    if 'front matter' in chapter_hint.lower() and len(seg_text) < 1000:
+        return []
+
+    log.info(f'[Parallel] Processing segment {seg_idx + 1}/{total_segments}: "{chapter_hint}"')
+    segment_chapters = []
+
+    if len(seg_text) > target_chunk_size:
+        pages_split = re.split(r'(--- Page \d+ ---)', seg_text)
+        page_blocks = []
+        for i in range(1, len(pages_split), 2):
+            header = pages_split[i]
+            content = pages_split[i+1] if i+1 < len(pages_split) else ''
+            page_blocks.append(header + content)
+
+        if not page_blocks:
+            page_blocks = [seg_text[i:i+target_chunk_size]
+                          for i in range(0, len(seg_text), target_chunk_size)]
+
+        idx = 0
+        while idx < len(page_blocks):
+            batch = []
+            batch_len = 0
+            while idx < len(page_blocks) and batch_len < target_chunk_size:
+                batch.append(page_blocks[idx])
+                batch_len += len(page_blocks[idx])
+                idx += 1
+
+            chunk_text = "\n".join(batch)
+
+            if idx > len(batch) and len(batch) > 0:
+                overlap_idx = idx - len(batch) - 1
+                if overlap_idx >= 0:
+                    chunk_text = page_blocks[overlap_idx] + "\n[OVERLAP FROM PREVIOUS]\n" + chunk_text
+
+            prefix = (
+                f'{subject_hints}'
+                f'This is a segment of chapter "{chapter_hint}" from a {subject_name or "textbook"}. '
+                f'Board: {board or "N/A"}, Standard: {standard or "N/A"}. '
+                f'EXERCISE HINT: Exercises likely at: {ex_ranges_str or "end of chapter"}. '
+                f'CRITICAL: Extract ALL content, formulas, equations, derivations, and diagrams. '
+                f'The "content" field in each section must contain the COMPLETE teaching material. '
+                f'Do not skip ANY section or subsection. Extract ALL exercises by type.'
+            )
+
+            parsed = _call_mistral_for_structuring(client, chunk_text,
+                                                    system_prompt=schema_prompt,
+                                                    prompt_prefix=prefix)
+            if parsed and 'chapters' in parsed:
+                segment_chapters.extend(parsed['chapters'])
+            elif parsed and ('chapter_name' in parsed or 'sections' in parsed):
+                segment_chapters.append(parsed)
+    else:
+        prefix = (
+            f'{subject_hints}'
+            f'This is a COMPLETE chapter: "{chapter_hint}". '
+            f'Board: {board or "N/A"}, Standard: {standard or "N/A"}. '
+            f'EXERCISE HINT: Exercises likely at: {ex_ranges_str or "end of chapter"}. '
+            f'Extract EVERY section, subsection, formula, equation, derivation, diagram, '
+            f'worked example, and ALL exercises by type. No truncation allowed. '
+            f'The "content" field must contain the COMPLETE teaching material for each section.'
+        )
+        parsed = _call_mistral_for_structuring(client, seg_text,
+                                                system_prompt=schema_prompt,
+                                                prompt_prefix=prefix)
+        if parsed and 'chapters' in parsed:
+            segment_chapters.extend(parsed['chapters'])
+        elif parsed and ('chapter_name' in parsed or 'sections' in parsed):
+            segment_chapters.append(parsed)
+
+    log.info(f'[Parallel] Segment "{chapter_hint}" done: {len(segment_chapters)} chapter(s)')
+    return segment_chapters
+
+
+def _extract_exercises_second_pass(client, chapter, pages_text, subject_name=''):
+    """If a chapter has 0 exercises, re-extract with a focused exercise prompt."""
+    # Count total exercises
+    total_ex = 0
+    exercises = chapter.get('exercises', {})
+    if isinstance(exercises, dict):
+        for ex_type, ex_data in exercises.items():
+            if ex_type == 'answer_keys':
+                continue
+            if isinstance(ex_data, dict) and isinstance(ex_data.get('questions'), list):
+                total_ex += len(ex_data['questions'])
+
+    if total_ex > 0:
+        return  # Already has exercises
+
+    if not pages_text or len(pages_text.strip()) < 100:
+        return
+
+    log.info(f'Second-pass exercise extraction for chapter: {chapter.get("chapter_name", "?")}')
+
+    # Use only the last portion (exercises usually at end of chapter)
+    exercise_text = pages_text[-30000:] if len(pages_text) > 30000 else pages_text
+
+    prefix = (
+        f'Subject: {subject_name or "academic"}. '
+        f'This text is from a textbook chapter. Extract ALL exercises and questions. '
+        f'Look for numbered questions, MCQs with options, fill-in-the-blanks, true/false, '
+        f'match-the-following, short answer, long answer, and numerical problems.'
+    )
+
+    parsed = _call_mistral_for_structuring(
+        client, exercise_text,
+        system_prompt=EXERCISE_EXTRACTION_PROMPT,
+        prompt_prefix=prefix
+    )
+
+    if not parsed:
+        return
+
+    new_exercises = parsed.get('exercises', {})
+    if not isinstance(new_exercises, dict):
+        return
+
+    # Merge into chapter
+    for ex_type, ex_data in new_exercises.items():
+        if not isinstance(ex_data, dict) or 'questions' not in ex_data:
+            continue
+        target = chapter.setdefault('exercises', {}).setdefault(
+            ex_type, {'count': 0, 'questions': []}
+        )
+        for q in ex_data.get('questions', []):
+            target['questions'].append(q)
+        target['count'] = len(target['questions'])
+
+    # Merge answer_keys if present
+    if 'answer_keys' in parsed:
+        chapter.setdefault('answer_keys', {}).setdefault('exercise_answers', [])
+        new_answers = parsed['answer_keys'].get('exercise_answers', [])
+        if isinstance(new_answers, list):
+            chapter['answer_keys']['exercise_answers'].extend(new_answers)
+
+    total_after = sum(
+        len(chapter.get('exercises', {}).get(t, {}).get('questions', []))
+        for t in chapter.get('exercises', {}) if t != 'answer_keys'
+    )
+    log.info(f'Second-pass extracted {total_after} exercises for chapter: {chapter.get("chapter_name", "?")}')
+
+
 def format_textbook(result, filename, options):
     """Structure extracted text into the textbook JSON schema.
     Auto-detects whether the input is a single chapter or full book,
@@ -2184,6 +2510,9 @@ def format_textbook(result, filename, options):
     else:
         subject_hints = f'Subject: {subject_name or "academic"}. '
 
+    # Build subject-adaptive schema prompt
+    schema_prompt = _build_schema_prompt(subject_name)
+
     # Try Mistral AI structuring
     final_chapters = []
     mistral_key = options.get('mistral_api_key', '') or os.environ.get('MISTRAL_API_KEY', '')
@@ -2192,22 +2521,28 @@ def format_textbook(result, filename, options):
         log.info(f'Using Mistral AI for textbook structuring (V3 - {doc_type} mode)...')
         try:
             from mistralai.client import Mistral as MistralClient
-            client = MistralClient(api_key=mistral_key, timeout_ms=120000)
+            client = MistralClient(api_key=mistral_key, timeout_ms=180000)
         except ImportError:
             try:
                 from mistralai import Mistral as MistralClient
-                client = MistralClient(api_key=mistral_key, timeout_ms=120000)
+                client = MistralClient(api_key=mistral_key, timeout_ms=180000)
             except Exception:
                 client = None
 
         if client:
-            TARGET_CHUNK_SIZE = 40000
+            TARGET_CHUNK_SIZE = 20000
+
+            log.info(f'=== STRUCTURING START === text={len(full_text)} chars, '
+                     f'subject={subject_name}, chunk_target={TARGET_CHUNK_SIZE}')
+            structuring_start = time.time()
 
             if doc_type == 'single_chapter':
                 # ====== SINGLE CHAPTER MODE ======
                 ch_name = chapter_info['name'] if chapter_info else Path(filename).stem
                 ch_num = chapter_info['number'] if chapter_info else '1'
-                log.info(f'Single chapter mode: "{ch_name}" (Chapter {ch_num})')
+                num_chunks = max(1, (len(full_text) + TARGET_CHUNK_SIZE - 1) // TARGET_CHUNK_SIZE)
+                log.info(f'Single chapter mode: "{ch_name}" (Chapter {ch_num}), '
+                         f'will need ~{num_chunks} chunk(s)')
 
                 if len(full_text) <= TARGET_CHUNK_SIZE:
                     # Small enough - process entire chapter in one go
@@ -2224,7 +2559,7 @@ def format_textbook(result, filename, options):
                         f'teaching material for each section. Do NOT truncate or summarize. '
                         f'Output exactly ONE chapter object with ALL its content.'
                     )
-                    parsed = _call_mistral_for_structuring(client, full_text, prompt_prefix=prefix)
+                    parsed = _call_mistral_for_structuring(client, full_text, system_prompt=schema_prompt, prompt_prefix=prefix)
                     if parsed and 'chapters' in parsed:
                         final_chapters.extend(parsed['chapters'])
                     elif parsed and ('chapter_name' in parsed or 'sections' in parsed):
@@ -2285,7 +2620,7 @@ def format_textbook(result, filename, options):
                             f'The "content" field must be COMPLETE. Do not truncate.'
                         )
                         
-                        parsed = _call_mistral_for_structuring(client, chunk_text, prompt_prefix=prefix)
+                        parsed = _call_mistral_for_structuring(client, chunk_text, system_prompt=schema_prompt, prompt_prefix=prefix)
                         if parsed and 'chapters' in parsed:
                             chapter_parts.extend(parsed['chapters'])
                         elif parsed and ('chapter_name' in parsed or 'sections' in parsed):
@@ -2294,77 +2629,36 @@ def format_textbook(result, filename, options):
                     _merge_chapters(final_chapters, chapter_parts)
 
             else:
-                # ====== FULL BOOK MODE ======
+                # ====== FULL BOOK MODE (PARALLEL) ======
                 log.info('Full book mode: splitting by chapter boundaries...')
                 chapter_segments = _split_text_by_chapters(full_text)
-                log.info(f'Detected {len(chapter_segments)} chapter segment(s) for AI processing')
+                log.info(f'Detected {len(chapter_segments)} chapter segment(s) for parallel AI processing')
 
-                for seg_idx, (chapter_hint, seg_text, start_page) in enumerate(chapter_segments):
-                    if 'front matter' in chapter_hint.lower() and len(seg_text) < 1000:
-                        continue
-
-                    log.info(f'Processing segment {seg_idx + 1}/{len(chapter_segments)}: "{chapter_hint}"')
-
-                    if len(seg_text) > TARGET_CHUNK_SIZE:
-                        pages_split = re.split(r'(--- Page \d+ ---)', seg_text)
-                        page_blocks = []
-                        for i in range(1, len(pages_split), 2):
-                            header = pages_split[i]
-                            content = pages_split[i+1] if i+1 < len(pages_split) else ''
-                            page_blocks.append(header + content)
-                        
-                        if not page_blocks:
-                            page_blocks = [seg_text[i:i+TARGET_CHUNK_SIZE] for i in range(0, len(seg_text), TARGET_CHUNK_SIZE)]
-
-                        chapter_parts = []
-                        idx = 0
-                        while idx < len(page_blocks):
-                            batch = []
-                            batch_len = 0
-                            while idx < len(page_blocks) and batch_len < TARGET_CHUNK_SIZE:
-                                batch.append(page_blocks[idx])
-                                batch_len += len(page_blocks[idx])
-                                idx += 1
-                            
-                            chunk_text = "\n".join(batch)
-                            
-                            if idx > len(batch) and len(batch) > 0:
-                                overlap_idx = idx - len(batch) - 1
-                                if overlap_idx >= 0:
-                                    chunk_text = page_blocks[overlap_idx] + "\n[OVERLAP FROM PREVIOUS]\n" + chunk_text
-                            
-                            prefix = (
-                                f'{subject_hints}'
-                                f'This is a segment of chapter "{chapter_hint}" from a {subject_name or "textbook"}. '
-                                f'Board: {board or "N/A"}, Standard: {standard or "N/A"}. '
-                                f'EXERCISE HINT: Exercises likely at: {ex_ranges_str or "end of chapter"}. '
-                                f'CRITICAL: Extract ALL content, formulas, equations, derivations, and diagrams. '
-                                f'The "content" field in each section must contain the COMPLETE teaching material. '
-                                f'Do not skip ANY section or subsection. Extract ALL exercises by type.'
-                            )
-                            
-                            parsed = _call_mistral_for_structuring(client, chunk_text, prompt_prefix=prefix)
-                            if parsed and 'chapters' in parsed:
-                                chapter_parts.extend(parsed['chapters'])
-                            elif parsed and ('chapter_name' in parsed or 'sections' in parsed):
-                                chapter_parts.append(parsed)
-                        
-                        _merge_chapters(final_chapters, chapter_parts)
-                    else:
-                        prefix = (
-                            f'{subject_hints}'
-                            f'This is a COMPLETE chapter: "{chapter_hint}". '
-                            f'Board: {board or "N/A"}, Standard: {standard or "N/A"}. '
-                            f'EXERCISE HINT: Exercises likely at: {ex_ranges_str or "end of chapter"}. '
-                            f'Extract EVERY section, subsection, formula, equation, derivation, diagram, '
-                            f'worked example, and ALL exercises by type. No truncation allowed. '
-                            f'The "content" field must contain the COMPLETE teaching material for each section.'
+                # Process segments in parallel (max 3 concurrent to respect API rate limits)
+                max_workers = min(3, max(1, len(chapter_segments)))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {}
+                    for seg_idx, (chapter_hint, seg_text, start_page) in enumerate(chapter_segments):
+                        future = executor.submit(
+                            _process_segment, client, chapter_hint, seg_text,
+                            seg_idx, len(chapter_segments), subject_hints,
+                            subject_name, board, standard, ex_ranges_str,
+                            schema_prompt, TARGET_CHUNK_SIZE
                         )
-                        parsed = _call_mistral_for_structuring(client, seg_text, prompt_prefix=prefix)
-                        if parsed and 'chapters' in parsed:
-                            _merge_chapters(final_chapters, parsed['chapters'])
-                        elif parsed and ('chapter_name' in parsed or 'sections' in parsed):
-                            _merge_chapters(final_chapters, [parsed])
+                        futures[future] = (seg_idx, chapter_hint)
+
+                    for future in concurrent.futures.as_completed(futures):
+                        seg_idx, hint = futures[future]
+                        try:
+                            seg_chapters = future.result()
+                            _merge_chapters(final_chapters, seg_chapters)
+                            log.info(f'Segment "{hint}" completed with {len(seg_chapters)} chapter(s)')
+                        except Exception as e:
+                            log.warning(f'Segment "{hint}" failed: {e}')
+
+    log.info(f'=== STRUCTURING DONE === {len(final_chapters)} chapters in '
+             f'{time.time() - structuring_start:.1f}s' if 'structuring_start' in dir() else 
+             f'=== STRUCTURING DONE === {len(final_chapters)} chapters (no timing)')
 
     # Fallback if no chapters detected
     if not final_chapters:
@@ -2374,6 +2668,28 @@ def format_textbook(result, filename, options):
     # Post-process all chapters: clean garbage data
     for ch in final_chapters:
         ch = _clean_chapter_data(ch)
+
+    # Second-pass exercise extraction for chapters with zero exercises
+    if mistral_key and MISTRAL_AVAILABLE:
+        try:
+            from mistralai.client import Mistral as MistralClient2
+            ex_client = MistralClient2(api_key=mistral_key, timeout_ms=300000)
+        except ImportError:
+            try:
+                from mistralai import Mistral as MistralClient2
+                ex_client = MistralClient2(api_key=mistral_key, timeout_ms=300000)
+            except Exception:
+                ex_client = None
+        if ex_client:
+            for ch in final_chapters:
+                # Get chapter-specific text from pages
+                ch_start = ch.get('textbook_page_start', 1) or 1
+                ch_end = ch.get('textbook_page_end', len(result['pages'])) or len(result['pages'])
+                ch_pages_text = '\n\n'.join(
+                    p['text'] for p in result['pages']
+                    if ch_start <= p['page_number'] <= ch_end and p['text']
+                )
+                _extract_exercises_second_pass(ex_client, ch, ch_pages_text, subject_name)
 
     # Ensure all chapters have the required structure
     _empty_exercises = {
