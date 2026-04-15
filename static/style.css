@@ -121,6 +121,39 @@ body {
     background: #fafafa;
 }
 
+.github-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.76rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #555;
+    text-decoration: none;
+    border: 1px solid var(--silver);
+    border-radius: 999px;
+    padding: 7px 14px 7px 11px;
+    background: #fff;
+    transition: color 250ms var(--ease), border-color 250ms var(--ease), background 250ms var(--ease), box-shadow 250ms var(--ease), transform 250ms var(--ease);
+}
+
+.github-btn svg {
+    flex-shrink: 0;
+    transition: transform 300ms var(--ease);
+}
+
+.github-btn:hover {
+    color: var(--ink);
+    border-color: #bbb;
+    background: #f7f7f7;
+    box-shadow: 0 4px 12px rgba(10, 10, 10, 0.08);
+    transform: translateY(-1px);
+}
+
+.github-btn:hover svg {
+    transform: scale(1.12);
+}
+
 .status-pill {
     display: inline-flex;
     align-items: center;

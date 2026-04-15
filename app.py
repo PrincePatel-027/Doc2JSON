@@ -1625,6 +1625,55 @@ def _detect_subject(pages):
     return best_subject
 
 
+def _detect_chapter_number(full_text, pages):
+    """Auto-detect the chapter or unit number from the PDF text.
+    Scans the first few pages for patterns like 'Chapter 5', 'Unit 3', etc.
+    Returns (number_str, chapter_name_str) or (None, None) if not found."""
+    # Patterns to find chapter/unit number (ordered by specificity)
+    patterns = [
+        # Chapter 5: Title  /  Ch 5. Title  /  Ch. 5 Title
+        re.compile(r'(?:chapter|ch\.?)\s+(\d+|[ivxlc]+)[\s.:]+(.+)', re.IGNORECASE),
+        # Unit 3: Title
+        re.compile(r'(?:unit)\s+(\d+|[ivxlc]+)[\s.:]+(.+)', re.IGNORECASE),
+        # Lesson 2: Title
+        re.compile(r'(?:lesson)\s+(\d+|[ivxlc]+)[\s.:]+(.+)', re.IGNORECASE),
+        # પ્રકરણ - ૫ (Gujarati chapter pattern)
+        re.compile(r'(?:પ્રકરણ|अध्याय|पाठ)\s*[-–:]?\s*(\d+|[૧-૯੧-੯१-९]+)[\s.:]*(.+)?', re.IGNORECASE),
+    ]
+
+    # Scan first 5 pages for chapter number
+    sample_pages = pages[:5] if len(pages) > 5 else pages
+    for p in sample_pages:
+        text = p.get('text', '')
+        for line in text.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            for patt in patterns:
+                m = patt.search(line)
+                if m:
+                    num_str = m.group(1).strip()
+                    name_str = (m.group(2) or '').strip() if m.lastindex >= 2 else ''
+                    # Clean up name (remove trailing punctuation)
+                    name_str = name_str.rstrip('.:;,- ')
+                    if num_str:
+                        log.info(f'Auto-detected chapter number: {num_str}, name: "{name_str}"')
+                        return num_str, name_str
+
+    # Fallback: look for a standalone number pattern at the top of early pages
+    # e.g. a large "5" at the top of the page before the chapter title
+    for p in sample_pages:
+        text = p.get('text', '')
+        lines = [l.strip() for l in text.split('\n') if l.strip()]
+        if lines and re.match(r'^\d{1,2}$', lines[0]):
+            num = lines[0]
+            name = lines[1] if len(lines) > 1 else ''
+            log.info(f'Auto-detected chapter number (standalone): {num}, name: "{name}"')
+            return num, name
+
+    return None, None
+
+
 def _detect_document_type(full_text, pages):
     """Detect whether the document is a full book or a single chapter.
     Returns ('single_chapter', chapter_info) or ('full_book', None)."""
@@ -1649,6 +1698,15 @@ def _detect_document_type(full_text, pages):
             'number': chapter_matches[0].group(1).strip(),
             'name': chapter_matches[0].group(2).strip(),
         }
+
+    # If chapter_info wasn't found via boundary regex, use the dedicated detector
+    if not chapter_info:
+        detected_num, detected_name = _detect_chapter_number(full_text, pages)
+        if detected_num:
+            chapter_info = {
+                'number': detected_num,
+                'name': detected_name or '',
+            }
 
     # Decision logic
     if page_count <= 5:
@@ -2536,7 +2594,13 @@ def format_textbook(result, filename, options):
             if doc_type == 'single_chapter':
                 # ====== SINGLE CHAPTER MODE ======
                 ch_name = chapter_info['name'] if chapter_info else Path(filename).stem
-                ch_num = chapter_info['number'] if chapter_info else '1'
+                ch_num = chapter_info['number'] if chapter_info else None
+                # Auto-detect chapter number if not found via document type detection
+                if not ch_num:
+                    detected_num, detected_name = _detect_chapter_number(full_text, result['pages'])
+                    ch_num = detected_num or '1'
+                    if detected_name and not ch_name:
+                        ch_name = detected_name
                 num_chunks = max(1, (len(full_text) + TARGET_CHUNK_SIZE - 1) // TARGET_CHUNK_SIZE)
                 log.info(f'Single chapter mode: "{ch_name}" (Chapter {ch_num}), '
                          f'will need ~{num_chunks} chunk(s)')
@@ -3497,7 +3561,45 @@ def convert():
         base_name = Path(safe_name).stem
         is_jsonl = output_format == 'jsonl'
         ext = 'jsonl' if is_jsonl else 'json'
-        output_filename = f'{base_name}_{output_format}.{ext}'
+
+        if output_format == 'textbook' and isinstance(formatted, dict):
+            # Build filename: Board-Standard-Subject-Subjectkey-Chaptername-Medium
+            tb_board = (formatted.get('board') or options.get('board', '') or 'Board').strip()
+            tb_standard = (formatted.get('standard') or options.get('standard', '') or 'Std').strip()
+            tb_subject = (formatted.get('subject_name') or options.get('subject_name', '') or 'Subject').strip()
+            tb_subject_key = (formatted.get('subject_key') or options.get('subject_key', '') or 'subjectkey').strip()
+            tb_medium = (formatted.get('medium') or options.get('medium', '') or 'Medium').strip()
+
+            # Get chapter name from the first chapter in the output
+            tb_chapter_name = ''
+            chapters_list = formatted.get('chapters', [])
+            if chapters_list and isinstance(chapters_list, list):
+                first_ch = chapters_list[0]
+                ch_num = first_ch.get('chapter_number', '')
+                ch_name = first_ch.get('chapter_name', '')
+                if ch_name and ch_name != 'Full Document':
+                    tb_chapter_name = f'Ch{ch_num}-{ch_name}' if ch_num else ch_name
+                elif ch_num:
+                    tb_chapter_name = f'Chapter-{ch_num}'
+                # For full books with multiple chapters, use book-level name
+                if len(chapters_list) > 1:
+                    tb_chapter_name = f'{len(chapters_list)}-Chapters'
+
+            if not tb_chapter_name:
+                tb_chapter_name = base_name
+
+            # Sanitize each part for use in filename
+            def _sanitize(s):
+                s = re.sub(r'[<>:"/\\|?*]', '', s)  # remove invalid filename chars
+                s = re.sub(r'\s+', '-', s.strip())    # spaces to hyphens
+                s = re.sub(r'-{2,}', '-', s)           # collapse multiple hyphens
+                return s.strip('-')
+
+            parts = [tb_board, tb_standard, tb_subject, tb_subject_key, tb_chapter_name, tb_medium]
+            parts = [_sanitize(p) for p in parts if p]
+            output_filename = '-'.join(parts) + f'.{ext}'
+        else:
+            output_filename = f'{base_name}_{output_format}.{ext}'
         output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
 
         # Write to disk
