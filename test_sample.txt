@@ -1,0 +1,14 @@
+This is a sample document for testing the Doc2JSON converter.
+
+The purpose of this tool is to convert documents into structured JSON formats that can be used to train AI models. It supports multiple output formats including chunks, paragraphs, sentences, and conversation format.
+
+Machine learning models require large amounts of training data. This data often comes from documents in various formats such as PDF, text files, and Word documents. Converting these documents into a structured JSON format makes it easier to feed them into training pipelines.
+
+Key features of the Doc2JSON converter:
+- Supports PDF, TXT, DOCX, MD, CSV, and HTML files
+- Multiple output formats for different AI training needs
+- Configurable chunk sizes and overlap for RAG applications
+- ChatML conversation format for chat model fine-tuning
+- JSONL format for standard fine-tuning workflows
+
+The converter extracts text from documents, cleans it, and structures it into the desired JSON format. Each output includes metadata such as word counts, character counts, and source file information to help with data management.

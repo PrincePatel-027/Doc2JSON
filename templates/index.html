@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doc2JSON v2 -- Advanced AI Training Data Converter</title>
+    <meta name="description" content="Convert entire books, PDFs, and documents into structured JSON for AI model training. Multi-pass extraction with image and diagram OCR.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="bg-grid"></div>
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                        <polyline points="14,2 14,8 20,8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1>Doc2JSON <span class="version-badge">v2</span></h1>
+                    <p class="tagline">Advanced AI Training Data Converter</p>
+                </div>
+            </div>
+            <div class="header-badges">
+                <div class="header-badge badge-green">
+                    <span class="pulse-dot"></span>
+                    Ready
+                </div>
+                <div class="header-badge" id="ocrBadge" style="display:none;">
+                    <span class="ocr-dot"></span>
+                    <span id="ocrBadgeText">OCR</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-grid">
+            <!-- LEFT PANEL -->
+            <section class="panel panel-upload">
+                <div class="panel-header">
+                    <h2>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17,8 12,3 7,8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        Upload Document
+                    </h2>
+                </div>
+
+                <!-- Drop Zone -->
+                <div class="drop-zone" id="dropZone">
+                    <div class="drop-zone-content">
+                        <div class="drop-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                                <polyline points="14,2 14,8 20,8"/>
+                                <line x1="12" y1="18" x2="12" y2="12"/>
+                                <polyline points="9,15 12,12 15,15"/>
+                            </svg>
+                        </div>
+                        <p class="drop-text">Drag & drop your file here</p>
+                        <p class="drop-subtext">Supports entire books up to 200 MB</p>
+                        <div class="drop-formats">
+                            <span class="format-tag">PDF</span>
+                            <span class="format-tag">TXT</span>
+                            <span class="format-tag">DOCX</span>
+                            <span class="format-tag">MD</span>
+                            <span class="format-tag">CSV</span>
+                            <span class="format-tag">HTML</span>
+                        </div>
+                    </div>
+                    <input type="file" id="fileInput" accept=".pdf,.txt,.md,.docx,.csv,.html" hidden>
+                </div>
+
+                <!-- File Info -->
+                <div class="file-info" id="fileInfo" style="display: none;">
+                    <div class="file-info-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                            <polyline points="14,2 14,8 20,8"/>
+                        </svg>
+                    </div>
+                    <div class="file-info-details">
+                        <span class="file-name" id="fileName"></span>
+                        <span class="file-size" id="fileSize"></span>
+                    </div>
+                    <button class="file-remove" id="fileRemove" title="Remove file">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Configuration -->
+                <div class="config-section">
+                    <h3 class="config-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                        Output Configuration
+                    </h3>
+
+                    <label class="config-label">Output Format</label>
+                    <div class="format-grid" id="formatGrid">
+                        <button class="format-btn active" data-format="chunks">
+                            <span class="format-btn-icon">&#x229E;</span>
+                            <span class="format-btn-name">Chunks</span>
+                            <span class="format-btn-desc">RAG / Embeddings</span>
+                        </button>
+                        <button class="format-btn" data-format="raw">
+                            <span class="format-btn-icon">&#x1F4C4;</span>
+                            <span class="format-btn-name">Raw</span>
+                            <span class="format-btn-desc">Full Document</span>
+                        </button>
+                        <button class="format-btn" data-format="paragraphs">
+                            <span class="format-btn-icon">&#x00B6;</span>
+                            <span class="format-btn-name">Paragraphs</span>
+                            <span class="format-btn-desc">Per Paragraph</span>
+                        </button>
+                        <button class="format-btn" data-format="sentences">
+                            <span class="format-btn-icon">&#x2261;</span>
+                            <span class="format-btn-name">Sentences</span>
+                            <span class="format-btn-desc">Classification</span>
+                        </button>
+                        <button class="format-btn" data-format="jsonl">
+                            <span class="format-btn-icon">&#x27E0;</span>
+                            <span class="format-btn-name">JSONL</span>
+                            <span class="format-btn-desc">Fine-tuning</span>
+                        </button>
+                        <button class="format-btn" data-format="conversation">
+                            <span class="format-btn-icon">&#x1F4AC;</span>
+                            <span class="format-btn-name">ChatML</span>
+                            <span class="format-btn-desc">Chat Training</span>
+                        </button>
+                        <button class="format-btn" data-format="textbook">
+                            <span class="format-btn-icon">&#x1F4DA;</span>
+                            <span class="format-btn-name">Textbook</span>
+                            <span class="format-btn-desc">Structured Schema</span>
+                        </button>
+                    </div>
+
+                    <!-- Mistral API Key -->
+                    <div class="api-key-section">
+                        <label class="config-label">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px;">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                            </svg>
+                            Mistral AI API Key
+                        </label>
+                        <div class="api-key-row">
+                            <input type="password" id="mistralApiKey" class="input-field api-key-input"
+                                   placeholder="Enter your Mistral API key"
+                                   autocomplete="off">
+                            <button type="button" class="api-key-toggle" id="toggleKeyVis" title="Show/hide key">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <p class="api-key-hint">Required for OCR &amp; Textbook structuring. Get a key at <a href="https://console.mistral.ai/" target="_blank" rel="noopener">console.mistral.ai</a></p>
+                    </div>
+
+                    <div class="api-key-section validator-key-section">
+                        <label class="config-label">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px;">
+                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                                <circle cx="12" cy="7" r="4"/>
+                            </svg>
+                            Groq API Key (AI Validator)
+                        </label>
+                        <div class="api-key-row">
+                            <input type="password" id="groqApiKey" class="input-field api-key-input"
+                                   placeholder="Enter your Groq API key"
+                                   autocomplete="off">
+                            <button type="button" class="api-key-toggle" id="toggleGroqVis" title="Show/hide key">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <p class="api-key-hint">Used only for scoring and suggestions in the UI. Original output stays unchanged until you click Implement.</p>
+                    </div>
+
+                    <div class="api-key-section validator-key-section">
+                        <label class="config-label">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px;">
+                                <path d="M12 20h9"/>
+                                <path d="M12 4h9"/>
+                                <path d="M3 9h18"/>
+                                <path d="M3 15h18"/>
+                            </svg>
+                            Sarvam API Key (AI Validator)
+                        </label>
+                        <div class="api-key-row">
+                            <input type="password" id="sarvamApiKey" class="input-field api-key-input"
+                                   placeholder="Enter your Sarvam API key"
+                                   autocomplete="off">
+                            <button type="button" class="api-key-toggle" id="toggleSarvamVis" title="Show/hide key">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <p class="api-key-hint">Used together with Groq for simultaneous validation and mutual consensus scoring.</p>
+                    </div>
+
+                    <!-- Textbook Metadata Fields (shown when Textbook format is selected) -->
+                    <div class="textbook-meta-section" id="textbookMetaSection" style="display: none;">
+                        <h3 class="config-title" style="margin-top: 12px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                            </svg>
+                            Textbook Metadata
+                        </h3>
+                        <div class="input-group">
+                            <label>Book ID <span class="input-hint">(auto-generated if empty)</span></label>
+                            <input type="text" id="tbBookId" class="input-field" placeholder="e.g. gseb-12-commerce-statistics-part-1-en">
+                        </div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <div class="input-group">
+                                <label>Board</label>
+                                <input type="text" id="tbBoard" class="input-field" placeholder="e.g. GSEB, CBSE">
+                            </div>
+                            <div class="input-group">
+                                <label>Standard</label>
+                                <input type="text" id="tbStandard" class="input-field" placeholder="e.g. 12">
+                            </div>
+                        </div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <div class="input-group">
+                                <label>Stream</label>
+                                <input type="text" id="tbStream" class="input-field" placeholder="e.g. commerce, science">
+                            </div>
+                            <div class="input-group">
+                                <label>Medium</label>
+                                <input type="text" id="tbMedium" class="input-field" placeholder="e.g. English, Hindi">
+                            </div>
+                        </div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <div class="input-group">
+                                <label>Language Code</label>
+                                <input type="text" id="tbLanguage" class="input-field" value="en" placeholder="e.g. en, hi, gu">
+                            </div>
+                            <div class="input-group">
+                                <label>Subject Key</label>
+                                <input type="text" id="tbSubjectKey" class="input-field" placeholder="e.g. statistics">
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Subject Name</label>
+                            <input type="text" id="tbSubjectName" class="input-field" placeholder="e.g. Statistics Part 1">
+                        </div>
+                        <div class="input-group">
+                            <label>Publisher</label>
+                            <input type="text" id="tbPublisher" class="input-field" placeholder="e.g. Gujarat State Board of School Textbooks">
+                        </div>
+                    </div>
+
+                    <!-- Advanced Options -->
+                    <div class="advanced-toggle" id="advancedToggle">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon">
+                            <polyline points="6,9 12,15 18,9"/>
+                        </svg>
+                        Advanced Options
+                    </div>
+                    <div class="advanced-options" id="advancedOptions" style="display: none;">
+                        <div class="input-group">
+                            <label>Chunk Size <span class="input-hint">(words)</span></label>
+                            <input type="number" id="chunkSize" value="512" min="50" max="8192" class="input-field">
+                        </div>
+                        <div class="input-group">
+                            <label>Chunk Overlap <span class="input-hint">(words)</span></label>
+                            <input type="number" id="chunkOverlap" value="64" min="0" max="1024" class="input-field">
+                        </div>
+                        <div class="input-group">
+                            <label>System Prompt <span class="input-hint">(ChatML format)</span></label>
+                            <textarea id="systemPrompt" class="input-field textarea" rows="3" placeholder="You are a knowledgeable assistant. Answer based on the provided content."></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Convert Button -->
+                <button class="convert-btn" id="convertBtn" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="convert-icon">
+                        <polyline points="16,3 21,3 21,8"/>
+                        <line x1="4" y1="20" x2="21" y2="3"/>
+                        <polyline points="21,16 21,21 16,21"/>
+                        <line x1="15" y1="15" x2="21" y2="21"/>
+                        <line x1="4" y1="4" x2="9" y2="9"/>
+                    </svg>
+                    <span id="convertBtnText">Convert to JSON</span>
+                    <div class="btn-loader" id="btnLoader" style="display:none;">
+                        <div class="spinner"></div>
+                    </div>
+                </button>
+
+                <!-- Processing log -->
+                <div class="processing-log" id="processingLog" style="display:none;">
+                    <div class="log-title">Processing Pipeline</div>
+                    <div class="log-entries" id="logEntries"></div>
+                </div>
+            </section>
+
+            <!-- RIGHT PANEL -->
+            <section class="panel panel-output">
+                <div class="panel-header">
+                    <h2>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="16,18 22,12 16,6"/>
+                            <polyline points="8,6 2,12 8,18"/>
+                        </svg>
+                        JSON Output
+                    </h2>
+                    <div class="panel-actions" id="panelActions" style="display:none;">
+                        <button class="action-btn" id="copyBtn" title="Copy JSON">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                            </svg>
+                            Copy
+                        </button>
+                        <button class="action-btn action-btn-primary" id="downloadBtn" title="Download JSON file">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7,10 12,15 17,10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            Download .json
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Stats Bar -->
+                <div class="stats-bar" id="statsBar" style="display:none;">
+                    <div class="stat-item" id="statWords">
+                        <span class="stat-value">--</span>
+                        <span class="stat-label">Words</span>
+                    </div>
+                    <div class="stat-item" id="statPages">
+                        <span class="stat-value">--</span>
+                        <span class="stat-label">Pages</span>
+                    </div>
+                    <div class="stat-item" id="statChunks">
+                        <span class="stat-value">--</span>
+                        <span class="stat-label">Chunks</span>
+                    </div>
+                    <div class="stat-item" id="statQuality">
+                        <span class="stat-value">--</span>
+                        <span class="stat-label">Quality</span>
+                    </div>
+                    <div class="stat-item" id="statSize">
+                        <span class="stat-value">--</span>
+                        <span class="stat-label">File Size</span>
+                    </div>
+                </div>
+
+                <!-- Warnings -->
+                <div class="warnings" id="warnings" style="display:none;"></div>
+
+                <!-- AI Validator -->
+                <div class="validator-panel" id="validatorPanel" style="display:none;">
+                    <div class="validator-header">
+                        <h3>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 2l3.09 6.26L22 9l-5 4.87L18.18 21 12 17.77 5.82 21 7 13.87 2 9l6.91-.74L12 2z"/>
+                            </svg>
+                            AI Validator (Groq + Sarvam)
+                        </h3>
+                        <div class="validator-actions">
+                            <button class="action-btn" id="validateBtn">Validate</button>
+                            <button class="action-btn action-btn-primary" id="implementBtn" disabled>Implement Selected</button>
+                            <button class="action-btn" id="keepChangesBtn" style="display:none;">Keep</button>
+                            <button class="action-btn" id="undoChangesBtn" style="display:none;">Undo</button>
+                        </div>
+                    </div>
+                    <div class="validator-status" id="validatorStatus">Run validation to score structure, accuracy, and reliability.</div>
+                    <div class="validator-score" id="validatorScore" style="display:none;"></div>
+                    <div class="validator-issues" id="validatorIssues" style="display:none;"></div>
+                    <div class="validator-suggestions" id="validatorSuggestions" style="display:none;"></div>
+                </div>
+
+                <!-- Output Area -->
+                <div class="output-area" id="outputArea">
+                    <div class="empty-state" id="emptyState">
+                        <div class="empty-icon">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                                <polyline points="14,2 14,8 20,8"/>
+                                <path d="M10 12l2 2 4-4"/>
+                            </svg>
+                        </div>
+                        <p class="empty-title">No output yet</p>
+                        <p class="empty-desc">Upload a document (or entire book!) and convert it to structured JSON for your AI model</p>
+                    </div>
+                    <pre class="json-output" id="jsonOutput" style="display:none;"><code id="jsonCode"></code></pre>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <p>Doc2JSON v2 -- Powered by Mistral AI OCR + Multi-pass extraction  --  Built for AI training pipelines</p>
+        </footer>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"><span id="toastMsg"></span></div>
+
+    <script>
+        // ===============================================
+        // State
+        // ===============================================
+        let selectedFile = null;
+        let selectedFormat = 'chunks';
+        let lastOutputFile = null;
+        let lastJsonText = '';
+        let lastValidation = null;
+        let applyPreviewBackup = null;
+
+        // DOM
+        const $ = id => document.getElementById(id);
+        const dropZone = $('dropZone');
+        const fileInput = $('fileInput');
+        const fileInfo = $('fileInfo');
+        const fileName = $('fileName');
+        const fileSize = $('fileSize');
+        const fileRemove = $('fileRemove');
+        const formatGrid = $('formatGrid');
+        const convertBtn = $('convertBtn');
+        const convertBtnText = $('convertBtnText');
+        const btnLoader = $('btnLoader');
+        const jsonOutput = $('jsonOutput');
+        const jsonCode = $('jsonCode');
+        const emptyState = $('emptyState');
+        const statsBar = $('statsBar');
+        const panelActions = $('panelActions');
+        const copyBtn = $('copyBtn');
+        const downloadBtn = $('downloadBtn');
+        const advancedToggle = $('advancedToggle');
+        const advancedOptions = $('advancedOptions');
+        const processingLog = $('processingLog');
+        const logEntries = $('logEntries');
+        const warningsDiv = $('warnings');
+        const textbookMetaSection = $('textbookMetaSection');
+        const validatorPanel = $('validatorPanel');
+        const validatorStatus = $('validatorStatus');
+        const validatorScore = $('validatorScore');
+        const validatorIssues = $('validatorIssues');
+        const validatorSuggestions = $('validatorSuggestions');
+        const validateBtn = $('validateBtn');
+        const implementBtn = $('implementBtn');
+        const keepChangesBtn = $('keepChangesBtn');
+        const undoChangesBtn = $('undoChangesBtn');
+
+        // ===============================================
+        // Check OCR status on load
+        // ===============================================
+        fetch('/api/status').then(r => r.json()).then(data => {
+            const badge = $('ocrBadge');
+            badge.style.display = 'flex';
+            if (data.mistral_sdk) {
+                badge.classList.add('badge-green');
+                $('ocrBadgeText').textContent = 'Mistral OCR';
+            } else if (data.tesseract) {
+                badge.classList.add('badge-amber');
+                $('ocrBadgeText').textContent = 'Tesseract Only';
+            } else {
+                badge.classList.add('badge-amber');
+                $('ocrBadgeText').textContent = 'No OCR';
+            }
+        }).catch(() => {});
+
+        // Load saved API keys from localStorage
+        const savedMistralKey = localStorage.getItem('mistral_api_key') || '';
+        if (savedMistralKey) $('mistralApiKey').value = savedMistralKey;
+        const savedGroqKey = localStorage.getItem('groq_api_key') || '';
+        if (savedGroqKey) $('groqApiKey').value = savedGroqKey;
+        const savedSarvamKey = localStorage.getItem('sarvam_api_key') || '';
+        if (savedSarvamKey) $('sarvamApiKey').value = savedSarvamKey;
+
+        // Toggle API key visibility
+        function setupToggle(btnId, inputId) {
+            $(btnId).addEventListener('click', () => {
+                const inp = $(inputId);
+                inp.type = inp.type === 'password' ? 'text' : 'password';
+            });
+        }
+        setupToggle('toggleKeyVis', 'mistralApiKey');
+        setupToggle('toggleGroqVis', 'groqApiKey');
+        setupToggle('toggleSarvamVis', 'sarvamApiKey');
+
+        // Save API keys on change
+        $('mistralApiKey').addEventListener('input', (e) => localStorage.setItem('mistral_api_key', e.target.value));
+        $('groqApiKey').addEventListener('input', (e) => localStorage.setItem('groq_api_key', e.target.value));
+        $('sarvamApiKey').addEventListener('input', (e) => localStorage.setItem('sarvam_api_key', e.target.value));
+
+        // ===============================================
+        // File Upload
+        // ===============================================
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', e => {
+            e.preventDefault(); dropZone.classList.add('drag-over');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault(); dropZone.classList.remove('drag-over');
+            if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) handleFile(fileInput.files[0]);
+        });
+
+        function handleFile(file) {
+            selectedFile = file;
+            fileName.textContent = file.name;
+            fileSize.textContent = formatBytes(file.size);
+            fileInfo.style.display = 'flex';
+            dropZone.style.display = 'none';
+            convertBtn.disabled = false;
+        }
+
+        fileRemove.addEventListener('click', () => {
+            selectedFile = null; fileInput.value = '';
+            fileInfo.style.display = 'none';
+            dropZone.style.display = 'flex';
+            convertBtn.disabled = true;
+            setValidatorIdleState();
+            validatorPanel.style.display = 'none';
+        });
+
+        function formatBytes(b) {
+            if (b === 0) return '0 B';
+            const k = 1024, s = ['B','KB','MB','GB'];
+            const i = Math.floor(Math.log(b) / Math.log(k));
+            return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
+        }
+
+        // ===============================================
+        // Format Selection
+        // ===============================================
+        formatGrid.addEventListener('click', e => {
+            const btn = e.target.closest('.format-btn');
+            if (!btn) return;
+            formatGrid.querySelectorAll('.format-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedFormat = btn.dataset.format;
+            // Show/hide textbook metadata fields
+            textbookMetaSection.style.display = selectedFormat === 'textbook' ? 'block' : 'none';
+        });
+
+        // ===============================================
+        // Advanced Options
+        // ===============================================
+        advancedToggle.addEventListener('click', () => {
+            const open = advancedOptions.style.display !== 'none';
+            advancedOptions.style.display = open ? 'none' : 'block';
+            advancedToggle.classList.toggle('open', !open);
+        });
+
+        // ===============================================
+        // Processing Log
+        // ===============================================
+        function logStep(text, status = 'running') {
+            processingLog.style.display = 'block';
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${status}`;
+            entry.innerHTML = `<span class="log-dot"></span> ${text}`;
+            logEntries.appendChild(entry);
+            logEntries.scrollTop = logEntries.scrollHeight;
+        }
+
+        function clearLog() {
+            logEntries.innerHTML = '';
+            processingLog.style.display = 'none';
+        }
+
+        // ===============================================
+        // Convert
+        // ===============================================
+        convertBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            convertBtn.disabled = true;
+            convertBtnText.textContent = 'Processing...';
+            btnLoader.style.display = 'flex';
+            warningsDiv.style.display = 'none';
+            warningsDiv.innerHTML = '';
+            setValidatorIdleState();
+            applyPreviewBackup = null;
+
+            clearLog();
+            logStep('Uploading document...');
+
+            const mistralKey = $('mistralApiKey').value.trim();
+
+            const fd = new FormData();
+            fd.append('file', selectedFile);
+            fd.append('format', selectedFormat);
+            fd.append('chunk_size', $('chunkSize').value);
+            fd.append('chunk_overlap', $('chunkOverlap').value);
+            fd.append('system_prompt', $('systemPrompt').value);
+            fd.append('extract_images', 'false');
+            fd.append('include_base64', 'false');
+            if (mistralKey) fd.append('mistral_api_key', mistralKey);
+
+            // Textbook metadata
+            if (selectedFormat === 'textbook') {
+                fd.append('book_id', $('tbBookId').value.trim());
+                fd.append('board', $('tbBoard').value.trim());
+                fd.append('standard', $('tbStandard').value.trim());
+                fd.append('stream', $('tbStream').value.trim());
+                fd.append('medium', $('tbMedium').value.trim());
+                fd.append('language', $('tbLanguage').value.trim() || 'en');
+                fd.append('subject_key', $('tbSubjectKey').value.trim());
+                fd.append('subject_name', $('tbSubjectName').value.trim());
+                fd.append('publisher', $('tbPublisher').value.trim());
+            }
+
+            try {
+                if (selectedFormat === 'textbook') {
+                    logStep('Textbook structuring mode active...');
+                    if (mistralKey) {
+                        logStep('Mistral AI will structure chapters, sections & exercises...');
+                    } else {
+                        logStep('Using rule-based structuring (add Mistral key for better results)', 'done');
+                    }
+                } else if (mistralKey) {
+                    logStep('Mistral AI OCR engine active -- best-in-class extraction...');
+                } else {
+                    logStep('Multi-pass extraction running (PyMuPDF + pdfplumber)...');
+                    logStep('Tip: Add a Mistral API key for world-class OCR accuracy', 'done');
+                }
+                const res = await fetch('/api/convert', { method: 'POST', body: fd });
+                const data = await res.json();
+
+                if (data.error) {
+                    logStep('Error: ' + data.error, 'error');
+                    showToast('Error: ' + data.error);
+                    return;
+                }
+
+                logStep('Extraction complete!', 'done');
+                logStep(`Quality score: ${(data.stats.quality_score * 100).toFixed(1)}%`, 'done');
+                if (data.stats.chapters_detected > 0) {
+                    logStep(`Detected ${data.stats.chapters_detected} chapters`, 'done');
+                }
+                if (data.stats.total_chapters > 0) {
+                    logStep(`Structured ${data.stats.total_chapters} chapters in textbook format`, 'done');
+                }
+
+                // Show output
+                lastOutputFile = data.output_file;
+                const isJsonl = selectedFormat === 'jsonl';
+
+                if (typeof data.preview === 'string') {
+                    lastJsonText = data.preview;
+                } else {
+                    lastJsonText = JSON.stringify(data.preview, null, 2);
+                }
+
+                jsonCode.textContent = lastJsonText;
+                jsonOutput.style.display = 'block';
+                emptyState.style.display = 'none';
+                panelActions.style.display = 'flex';
+
+                // Stats
+                const s = data.stats;
+                statsBar.style.display = 'flex';
+                setStatValue('statWords', s.total_words?.toLocaleString() ?? '--', 'Words');
+                setStatValue('statPages', s.total_pages?.toLocaleString() ?? '--', 'Pages');
+                setStatValue('statQuality', ((s.quality_score || 0) * 100).toFixed(0) + '%', 'Quality');
+                setStatValue('statSize', data.output_size_human || '--', 'File Size');
+
+                // Dynamic chunk stat
+                if (s.total_chapters != null)
+                    setStatValue('statChunks', s.total_chapters, 'Chapters');
+                else if (s.total_chunks != null)
+                    setStatValue('statChunks', s.total_chunks, 'Chunks');
+                else if (s.total_paragraphs != null)
+                    setStatValue('statChunks', s.total_paragraphs, 'Paragraphs');
+                else if (s.total_sentences != null)
+                    setStatValue('statChunks', s.total_sentences, 'Sentences');
+                else if (s.total_conversations != null)
+                    setStatValue('statChunks', s.total_conversations, 'Conversations');
+                else if (s.total_lines != null)
+                    setStatValue('statChunks', s.total_lines, 'Lines');
+                else
+                    setStatValue('statChunks', '--', 'Items');
+
+                // Warnings
+                if (s.warnings && s.warnings.length > 0) {
+                    warningsDiv.style.display = 'block';
+                    s.warnings.forEach(w => {
+                        const div = document.createElement('div');
+                        div.className = 'warning-item';
+                        div.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> ${w}`;
+                        warningsDiv.appendChild(div);
+                    });
+                }
+
+                validatorPanel.style.display = 'block';
+                validatorStatus.textContent = 'Run validation to score this output and get improvement suggestions.';
+                if ($('groqApiKey').value.trim() && $('sarvamApiKey').value.trim()) {
+                    runValidation(true);
+                }
+
+
+
+                showToast('Conversion complete!');
+
+            } catch (err) {
+                logStep('Error: ' + err.message, 'error');
+                showToast('Error: ' + err.message);
+            } finally {
+                convertBtn.disabled = false;
+                convertBtnText.textContent = 'Convert to JSON';
+                btnLoader.style.display = 'none';
+            }
+        });
+
+        function setStatValue(id, value, label) {
+            const el = $(id);
+            el.querySelector('.stat-value').textContent = value;
+            el.querySelector('.stat-label').textContent = label;
+        }
+
+        // ===============================================
+        // Copy
+        // ===============================================
+        copyBtn.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(lastJsonText);
+                showToast('Copied to clipboard!');
+            } catch { showToast('Copy failed'); }
+        });
+
+        // ===============================================
+        // Download -- proper .json file download
+        // ===============================================
+        downloadBtn.addEventListener('click', () => {
+            if (!lastOutputFile) return;
+            // Create an invisible <a> with download attribute
+            const a = document.createElement('a');
+            a.href = '/api/download/' + encodeURIComponent(lastOutputFile);
+            a.download = lastOutputFile;  // forces browser to save-as
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            showToast('Downloading ' + lastOutputFile);
+        });
+
+        // ===============================================
+        // AI Validator (Groq + Sarvam)
+        // ===============================================
+        function escapeHtml(text) {
+            return String(text || '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function setValidatorIdleState() {
+            lastValidation = null;
+            implementBtn.disabled = true;
+            keepChangesBtn.style.display = 'none';
+            undoChangesBtn.style.display = 'none';
+            validatorScore.style.display = 'none';
+            validatorIssues.style.display = 'none';
+            validatorSuggestions.style.display = 'none';
+            validatorScore.innerHTML = '';
+            validatorIssues.innerHTML = '';
+            validatorSuggestions.innerHTML = '';
+            validatorStatus.textContent = 'Run validation to score structure, accuracy, and reliability.';
+        }
+
+        function selectedSuggestions() {
+            if (!lastValidation || !Array.isArray(lastValidation.suggestions)) return [];
+
+            const selectedIndexes = Array.from(
+                validatorSuggestions.querySelectorAll('.suggestion-check:checked')
+            ).map(cb => Number(cb.dataset.index));
+
+            return selectedIndexes
+                .filter(i => Number.isFinite(i) && i >= 0 && i < lastValidation.suggestions.length)
+                .map(i => lastValidation.suggestions[i])
+                .filter(s => s && Array.isArray(s.operations) && s.operations.length > 0);
+        }
+
+        function refreshImplementState() {
+            implementBtn.disabled = selectedSuggestions().length === 0;
+        }
+
+        function renderValidation(validator, responseData = {}) {
+            lastValidation = validator;
+
+            const score = Number(validator.score || 0);
+            const scoreClass = score >= 8 ? 'score-good' : (score >= 6 ? 'score-mid' : 'score-bad');
+
+            validatorScore.style.display = 'block';
+            validatorScore.innerHTML = `
+                <div class="validator-score-main ${scoreClass}">${score.toFixed(1)}/10</div>
+                <div class="validator-score-breakdown">
+                    <span>Structure: ${Number(validator.structure_score || 0).toFixed(1)}</span>
+                    <span>Accuracy: ${Number(validator.accuracy_score || 0).toFixed(1)}</span>
+                    <span>Reliability: ${Number(validator.reliability_score || 0).toFixed(1)}</span>
+                </div>
+                <div class="validator-summary">${escapeHtml(validator.summary || 'No summary provided.')}</div>
+            `;
+
+            const issues = Array.isArray(validator.issues) ? validator.issues : [];
+            if (issues.length > 0) {
+                validatorIssues.style.display = 'block';
+                validatorIssues.innerHTML = issues
+                    .map(issue => `<div class="validator-issue">${escapeHtml(issue)}</div>`)
+                    .join('');
+            } else {
+                validatorIssues.style.display = 'none';
+                validatorIssues.innerHTML = '';
+            }
+
+            const suggestions = Array.isArray(validator.suggestions) ? validator.suggestions : [];
+            const actionable = suggestions.filter(s => Array.isArray(s.operations) && s.operations.length > 0).length;
+            if (suggestions.length > 0) {
+                validatorSuggestions.style.display = 'block';
+                validatorSuggestions.innerHTML = suggestions.map((s, idx) => {
+                    const opCount = Array.isArray(s.operations) ? s.operations.length : 0;
+                    const disabled = opCount === 0 ? 'disabled' : '';
+                    const checked = opCount > 0 ? 'checked' : '';
+                    return `
+                        <label class="validator-suggestion ${opCount === 0 ? 'suggestion-readonly' : ''}">
+                            <div class="suggestion-head">
+                                <input type="checkbox" class="suggestion-check" data-index="${idx}" ${checked} ${disabled}>
+                                <span class="suggestion-title">${escapeHtml(s.title || `Suggestion ${idx + 1}`)}</span>
+                                <span class="suggestion-op-count">${opCount} op${opCount === 1 ? '' : 's'}</span>
+                            </div>
+                            <div class="suggestion-reason">${escapeHtml(s.reason || '')}</div>
+                            <div class="suggestion-impact">Impact: ${escapeHtml(s.expected_impact || 'Improves output quality')}</div>
+                        </label>
+                    `;
+                }).join('');
+            } else {
+                validatorSuggestions.style.display = 'none';
+                validatorSuggestions.innerHTML = '';
+            }
+
+            const individual = responseData.individual_validators || {};
+            const decisionMode = responseData.decision_mode || 'single';
+            const providerErrors = responseData.provider_errors || {};
+            const providerParts = Object.values(individual)
+                .map(v => `${v.provider || 'provider'}:${Number(v.score || 0).toFixed(1)}`)
+                .join(' | ');
+            validatorStatus.textContent = decisionMode === 'mutual'
+                ? `Mutual validation complete (${providerParts}).`
+                : `Single-provider validation complete (${providerParts || (validator.provider || 'provider')}).`;
+            if (Object.keys(providerErrors).length > 0) {
+                const errorParts = Object.entries(providerErrors)
+                    .map(([k, v]) => `${k}: ${String(v).slice(0, 120)}`)
+                    .join(' | ');
+                validatorStatus.textContent += ` Provider note: ${errorParts}`;
+            }
+            implementBtn.disabled = actionable === 0;
+            refreshImplementState();
+        }
+
+        async function runValidation(isAuto = false) {
+            if (!lastOutputFile) {
+                if (!isAuto) showToast('Convert a file first');
+                return;
+            }
+
+            const groqKey = $('groqApiKey').value.trim();
+            const sarvamKey = $('sarvamApiKey').value.trim();
+            if (!groqKey || !sarvamKey) {
+                validatorPanel.style.display = 'block';
+                validatorStatus.textContent = 'Enter both Groq and Sarvam API keys for mutual validation.';
+                if (!isAuto) showToast('Both Groq and Sarvam keys are required');
+                return;
+            }
+
+            validateBtn.disabled = true;
+            implementBtn.disabled = true;
+            validatorStatus.textContent = 'Running AI validation...';
+            validatorScore.style.display = 'none';
+            validatorIssues.style.display = 'none';
+            validatorSuggestions.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/validator/score', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        output_file: lastOutputFile,
+                        groq_api_key: groqKey,
+                        sarvam_api_key: sarvamKey,
+                    }),
+                });
+
+                const data = await res.json();
+                if (data.error) {
+                    validatorStatus.textContent = 'Validation failed: ' + data.error;
+                    if (!isAuto) showToast('Validation failed');
+                    return;
+                }
+
+                renderValidation(data.validator || {}, data);
+                if (!isAuto) showToast('Validation complete');
+            } catch (err) {
+                validatorStatus.textContent = 'Validation failed: ' + err.message;
+                if (!isAuto) showToast('Validation failed');
+            } finally {
+                validateBtn.disabled = false;
+            }
+        }
+
+        async function implementSelectedSuggestions() {
+            if (!lastOutputFile) {
+                showToast('No output file to update');
+                return;
+            }
+
+            const toApply = selectedSuggestions();
+            if (toApply.length === 0) {
+                showToast('Select at least one actionable suggestion');
+                return;
+            }
+
+            implementBtn.disabled = true;
+            validatorStatus.textContent = 'Applying selected suggestions into a new output file...';
+
+            try {
+                const res = await fetch('/api/validator/apply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        output_file: lastOutputFile,
+                        suggestions: toApply,
+                    }),
+                });
+                const data = await res.json();
+
+                if (data.error) {
+                    validatorStatus.textContent = 'Apply failed: ' + data.error;
+                    showToast('Apply failed');
+                    return;
+                }
+
+                applyPreviewBackup = {
+                    outputFile: lastOutputFile,
+                    jsonText: lastJsonText,
+                };
+
+                lastOutputFile = data.output_file;
+                if (typeof data.preview === 'string') {
+                    lastJsonText = data.preview;
+                } else {
+                    lastJsonText = JSON.stringify(data.preview, null, 2);
+                }
+                jsonCode.textContent = lastJsonText;
+
+                keepChangesBtn.style.display = 'inline-flex';
+                undoChangesBtn.style.display = 'inline-flex';
+                validatorStatus.textContent = `Applied ${data.applied_count || 0} suggestion(s). Review preview and choose Keep or Undo.`;
+                showToast('Applied suggestions to new output file');
+            } catch (err) {
+                validatorStatus.textContent = 'Apply failed: ' + err.message;
+                showToast('Apply failed');
+            } finally {
+                refreshImplementState();
+            }
+        }
+
+        validateBtn.addEventListener('click', () => runValidation(false));
+        implementBtn.addEventListener('click', implementSelectedSuggestions);
+
+        validatorSuggestions.addEventListener('change', (e) => {
+            if (e.target.classList.contains('suggestion-check')) {
+                refreshImplementState();
+            }
+        });
+
+        keepChangesBtn.addEventListener('click', () => {
+            applyPreviewBackup = null;
+            keepChangesBtn.style.display = 'none';
+            undoChangesBtn.style.display = 'none';
+            showToast('Validated output kept');
+        });
+
+        undoChangesBtn.addEventListener('click', () => {
+            if (!applyPreviewBackup) return;
+            lastOutputFile = applyPreviewBackup.outputFile;
+            lastJsonText = applyPreviewBackup.jsonText;
+            jsonCode.textContent = lastJsonText;
+            applyPreviewBackup = null;
+            keepChangesBtn.style.display = 'none';
+            undoChangesBtn.style.display = 'none';
+            validatorStatus.textContent = 'Reverted to original output preview.';
+            showToast('Preview reverted');
+        });
+
+        // ===============================================
+        // Toast
+        // ===============================================
+        function showToast(msg) {
+            const t = $('toast');
+            $('toastMsg').textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 3500);
+        }
+    </script>
+</body>
+</html>
