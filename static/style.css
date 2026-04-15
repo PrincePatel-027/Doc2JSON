@@ -105,6 +105,8 @@ body {
 }
 
 .docs-link {
+    display: inline-flex;
+    align-items: center;
     font-size: 0.78rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -112,6 +114,7 @@ body {
     border: 1px solid transparent;
     border-radius: 999px;
     padding: 8px 12px;
+    text-decoration: none;
     transition: color 220ms var(--ease), border-color 220ms var(--ease), background 220ms var(--ease);
 }
 

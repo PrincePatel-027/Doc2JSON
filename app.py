@@ -143,6 +143,7 @@ class DocumentProcessor:
     # Chapter detection patterns
     CHAPTER_PATTERNS = [
         re.compile(r'^(chapter|ch\.?)\s+(\d+|[ivxlc]+)', re.IGNORECASE),
+        re.compile(r'^(unit|lesson)\s+(\d+|[ivxlc]+)', re.IGNORECASE),
         re.compile(r'^(part)\s+(\d+|[ivxlc]+|one|two|three|four|five)', re.IGNORECASE),
         re.compile(r'^(section)\s+(\d+)', re.IGNORECASE),
         re.compile(r'^(\d+)\.\s+[A-Z]'),      # "1. Introduction"
@@ -222,25 +223,42 @@ class DocumentProcessor:
     def _extract_pdf_multipass(self):
         """Extract PDF with multiple engines and merge the best text per page.
         If Mistral API key is provided, also runs Mistral OCR as a third pass."""
+        ocr_mode = str(self.options.get('mistral_ocr_mode', 'auto')).strip().lower()
+        force_full_mistral_ocr = bool(self.mistral_client and ocr_mode == 'force')
+
         log.info("Pass 1/3: PyMuPDF extraction...")
         pass_mu = self._pymupdf_extract()
 
-        if self.mistral_client:
-            # When Mistral OCR is available, skip full pdfplumber text (Mistral is superior)
-            # Only extract tables from pdfplumber for speed
+        if force_full_mistral_ocr:
+            # Force mode: Mistral OCR will be the primary text engine.
             log.info("Pass 2/3: pdfplumber tables only (Mistral OCR will handle text)...")
             pass_plumber = self._pdfplumber_tables_only()
         else:
+            # Auto/off modes: keep pdfplumber text so we can skip expensive OCR when not needed.
             log.info("Pass 2/3: pdfplumber extraction...")
             pass_plumber = self._pdfplumber_extract()
 
         log.info("Pass 3/3: Merging & scoring pages...")
         self.pages = self._merge_passes(pass_mu, pass_plumber)
 
-        # Mistral OCR pass -- process entire PDF via Mistral API
+        # Optional Mistral OCR pass -- run only when forced or extraction looks weak.
         if self.mistral_client and self.ext == '.pdf':
-            log.info("Mistral AI OCR pass: processing full document...")
-            self._mistral_ocr_full_pdf()
+            should_run_ocr = False
+            reason = ''
+
+            if ocr_mode == 'off':
+                reason = 'disabled by mistral_ocr_mode=off'
+            elif force_full_mistral_ocr:
+                should_run_ocr = True
+                reason = 'forced by mistral_ocr_mode=force'
+            else:
+                should_run_ocr, reason = self._should_run_mistral_ocr()
+
+            if should_run_ocr:
+                log.info(f"Mistral AI OCR pass: processing full document ({reason})...")
+                self._mistral_ocr_full_pdf()
+            else:
+                log.info(f"Skipping full Mistral OCR ({reason})")
 
         # Image extraction (separate pass for isolation)
         if self.options.get('extract_images', True) and self.ext == '.pdf':
@@ -357,6 +375,31 @@ class DocumentProcessor:
                 sum(scores_2) / len(scores_2), 4)
 
         return merged
+
+    def _should_run_mistral_ocr(self):
+        """Heuristic gate for expensive full-document Mistral OCR.
+        Returns (should_run, reason)."""
+        if not self.pages:
+            return False, 'no pages extracted'
+
+        page_count = len(self.pages)
+        empty_pages = sum(1 for p in self.pages if p.get('char_count', 0) == 0)
+        thin_pages = sum(1 for p in self.pages if p.get('char_count', 0) < 80)
+        total_chars = sum(p.get('char_count', 0) for p in self.pages)
+        avg_chars = total_chars / max(page_count, 1)
+        avg_quality = sum(self._quality_score(p.get('text', '')) for p in self.pages) / max(page_count, 1)
+
+        empty_ratio = empty_pages / page_count
+        thin_ratio = thin_pages / page_count
+
+        if empty_ratio >= 0.35:
+            return True, f'empty page ratio={empty_ratio:.2f}'
+        if thin_ratio >= 0.60:
+            return True, f'thin page ratio={thin_ratio:.2f}'
+        if avg_chars < 350 and avg_quality < 0.42:
+            return True, f'low coverage avg_chars={avg_chars:.1f}, avg_quality={avg_quality:.2f}'
+
+        return False, f'local extraction quality acceptable (avg_chars={avg_chars:.1f}, avg_quality={avg_quality:.2f})'
 
     # -----------------------------------------------------------------
     # MISTRAL AI OCR -- Full PDF + Individual Images
@@ -1166,6 +1209,252 @@ def clean_for_output(text):
     return text.strip()
 
 
+def _slugify_text(value, fallback='unknown'):
+    text = str(value or '').strip().lower()
+    if not text:
+        return fallback
+    text = re.sub(r'[^a-z0-9\s\-_]+', '', text)
+    text = re.sub(r'[\s_]+', '-', text)
+    text = re.sub(r'-{2,}', '-', text).strip('-')
+    return text or fallback
+
+
+def _sanitize_filename_token(value, fallback='NA'):
+    token = str(value or '').strip()
+    if not token:
+        return fallback
+    token = token.replace('&', 'and')
+    token = re.sub(r'[^A-Za-z0-9\s\-_.]+', '', token)
+    token = re.sub(r'\s+', '-', token)
+    token = re.sub(r'-{2,}', '-', token).strip('-_.')
+    if not token:
+        return fallback
+    return token[:72]
+
+
+def _compose_textbook_output_filename(formatted, fallback_base='textbook', ext='json'):
+    """Build textbook output filename as:
+    Board-Standard-Subject-Subjectkey-Chaptername-Medium"""
+    chapters = formatted.get('chapters', []) if isinstance(formatted, dict) else []
+    chapter_name = ''
+    if len(chapters) == 1:
+        chapter_name = str(chapters[0].get('chapter_name', '')).strip()
+    elif len(chapters) > 1:
+        chapter_name = str(chapters[0].get('chapter_name', '')).strip() or 'Multi-Chapter'
+
+    detected = {}
+    if isinstance(formatted, dict):
+        detected = (formatted.get('meta') or {}).get('detected_document') or {}
+
+    if not chapter_name:
+        chapter_name = str(detected.get('name', '')).strip() or fallback_base
+
+    board = (formatted or {}).get('board') or 'UnknownBoard'
+    standard = (formatted or {}).get('standard') or 'UnknownStandard'
+    subject = (formatted or {}).get('subject_name') or 'UnknownSubject'
+    subject_key = (formatted or {}).get('subject_key') or _slugify_text(subject)
+    medium = (formatted or {}).get('medium') or (formatted or {}).get('language') or 'UnknownMedium'
+
+    parts = [
+        _sanitize_filename_token(board, 'UnknownBoard'),
+        _sanitize_filename_token(standard, 'UnknownStandard'),
+        _sanitize_filename_token(subject, 'UnknownSubject'),
+        _sanitize_filename_token(subject_key, 'unknown-subject'),
+        _sanitize_filename_token(chapter_name, _sanitize_filename_token(fallback_base, 'Chapter')),
+        _sanitize_filename_token(medium, 'UnknownMedium'),
+    ]
+    return '-'.join(parts) + f'.{ext}'
+
+
+WORD_NUMBER_MAP = {
+    'one': 1,
+    'two': 2,
+    'three': 3,
+    'four': 4,
+    'five': 5,
+    'six': 6,
+    'seven': 7,
+    'eight': 8,
+    'nine': 9,
+    'ten': 10,
+    'eleven': 11,
+    'twelve': 12,
+    'thirteen': 13,
+    'fourteen': 14,
+    'fifteen': 15,
+    'sixteen': 16,
+}
+
+
+def _roman_to_int(value):
+    if not value:
+        return None
+    s = str(value).strip().upper()
+    if not s or not re.fullmatch(r'[IVXLCDM]+', s):
+        return None
+
+    vals = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000}
+    total = 0
+    prev = 0
+    for ch in reversed(s):
+        cur = vals[ch]
+        if cur < prev:
+            total -= cur
+        else:
+            total += cur
+            prev = cur
+    return total if total > 0 else None
+
+
+def _normalize_chapter_number(value):
+    if value is None:
+        return None
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+
+    if raw.isdigit():
+        return int(raw)
+
+    word_num = WORD_NUMBER_MAP.get(raw.lower())
+    if word_num is not None:
+        return word_num
+
+    roman_num = _roman_to_int(raw)
+    if roman_num is not None:
+        return roman_num
+
+    digit_match = re.search(r'\d+', raw)
+    if digit_match:
+        return int(digit_match.group(0))
+
+    return raw
+
+
+def _parse_chapter_marker(text):
+    """Parse chapter/unit marker from heading-like text.
+    Returns dict with keys: kind, number_raw, number, name."""
+    source = re.sub(r'[_\-]+', ' ', str(text or '').strip())
+    source = re.sub(r'\s+', ' ', source)
+    if not source:
+        return None
+
+    patt = re.compile(
+        r'^(?:(chapter|ch\.?|unit|lesson|part)\s+)?'
+        r'(\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)'
+        r'\s*[:.\-]?\s*(.*)$',
+        re.IGNORECASE,
+    )
+    m = patt.match(source)
+    if not m:
+        return None
+
+    kind = (m.group(1) or 'chapter').lower().replace('.', '')
+    number_raw = (m.group(2) or '').strip()
+    name = (m.group(3) or '').strip()
+    return {
+        'kind': kind,
+        'number_raw': number_raw,
+        'number': _normalize_chapter_number(number_raw),
+        'name': name,
+    }
+
+
+def _is_placeholder_chapter_name(name):
+    s = str(name or '').strip().lower()
+    if not s:
+        return True
+    if s in {
+        'full document',
+        'chapter',
+        'unit',
+        'untitled',
+        '<full title as printed>',
+        'chapter name',
+    }:
+        return True
+    if re.fullmatch(r'(chapter|unit|lesson|part)\s+\d+', s):
+        return True
+    return False
+
+
+def _apply_detected_chapter_info(chapter_obj, detected):
+    """Apply detected chapter/unit number and title onto a parsed chapter object."""
+    if not isinstance(chapter_obj, dict) or not isinstance(detected, dict):
+        return chapter_obj
+
+    detected_num = detected.get('number')
+    if detected_num is not None:
+        current_num = _normalize_chapter_number(chapter_obj.get('chapter_number'))
+        if current_num is None or (current_num == 1 and detected_num != 1):
+            chapter_obj['chapter_number'] = detected_num
+
+    detected_name = str(detected.get('name', '')).strip()
+    if detected_name:
+        current_name = chapter_obj.get('chapter_name', '')
+        if _is_placeholder_chapter_name(current_name):
+            chapter_obj['chapter_name'] = detected_name
+
+    return chapter_obj
+
+
+def _detect_textbook_metadata(pages, pdf_metadata=None):
+    """Best-effort metadata detection from textbook text and PDF metadata."""
+    sample_pages = pages[:8] if isinstance(pages, list) else []
+    sample_text = ' '.join(p.get('text', '') for p in sample_pages).lower()
+
+    meta_blob = ''
+    if isinstance(pdf_metadata, dict):
+        meta_blob = ' '.join(str(v) for v in pdf_metadata.values() if v).lower()
+    corpus = f'{sample_text} {meta_blob}'
+
+    board = ''
+    board_signatures = {
+        'CBSE': [' cbse ', 'central board of secondary education', 'ncert'],
+        'ICSE': [' icse ', 'cisce'],
+        'ISC': [' isc '],
+        'GSEB': [' gseb ', 'gujarat secondary and higher secondary education board'],
+        'NCERT': [' ncert '],
+        'State Board': ['state board'],
+    }
+    padded = f' {corpus} '
+    for label, signs in board_signatures.items():
+        if any(sign in padded for sign in signs):
+            board = label
+            break
+
+    standard = ''
+    std_match = re.search(
+        r'\b(?:class|std\.?|standard|grade)\s*[:\-]?\s*'
+        r'(\d{1,2}|xi|xii|ix|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b',
+        corpus,
+        re.IGNORECASE,
+    )
+    if std_match:
+        raw_std = std_match.group(1).strip()
+        normalized_std = _normalize_chapter_number(raw_std)
+        standard = str(normalized_std) if normalized_std is not None else raw_std
+
+    medium = ''
+    medium_signatures = {
+        'English': ['english medium', ' medium english ', 'language: english'],
+        'Hindi': ['hindi medium', ' medium hindi ', 'language: hindi'],
+        'Gujarati': ['gujarati medium', ' medium gujarati ', 'language: gujarati'],
+        'Marathi': ['marathi medium', ' medium marathi ', 'language: marathi'],
+    }
+    for label, signs in medium_signatures.items():
+        if any(sign in padded for sign in signs):
+            medium = label
+            break
+
+    return {
+        'board': board,
+        'standard': standard,
+        'medium': medium,
+    }
+
+
 # =====================================================================
 # OUTPUT FORMAT HANDLERS
 # =====================================================================
@@ -1325,119 +1614,124 @@ def format_conversation(result, filename, options):
 # TEXTBOOK FORMAT HANDLER -- Structured Textbook JSON via Mistral AI
 # =====================================================================
 
-TEXTBOOK_SCHEMA_PROMPT = """You are a textbook content extractor. Parse ALL content into the JSON schema below. Return ONLY valid JSON, no markdown fences.
+TEXTBOOK_SCHEMA_PROMPT = """You are a textbook structure extractor. Parse textbook text into the JSON schema below while preserving structure and omitting explanatory body text. Return ONLY valid JSON, no markdown fences.
 
 RULES:
-1. "content" is the #1 priority field: capture FULL teaching text for each section. NEVER truncate.
-2. "topics": only named concepts (e.g. "Photosynthesis", "Ohm's Law"). NOT random words.
-3. EXERCISES: extract ALL questions by type. NEVER include answers in question arrays. Answers go in answer_keys.
-4. Use exact section numbering from textbook. Sub-sections (1.4.1) go under parent (1.4).
-5. "count" must match array length for all exercise types.
+1. Keep the JSON schema and keys exactly as shown. Do not add, remove, or rename keys.
+2. Extract structure only: chapter titles, section/sub-section numbers and names, topics, formulas, figures/diagrams metadata, exercises, answer_keys, learning_objectives, and chapter_summary.
+3. Do NOT include section/sub-section body paragraphs or explanations. Keep "content" (sections/sub_sections) and "introduction" as empty strings.
+4. For explanation-heavy fields (e.g., key_terms.definition, derivations.steps, worked_examples.solution), keep text empty or minimal labels only.
+5. EXERCISES: extract ALL questions by type. NEVER include answers in question arrays. Answers go in answer_keys.
+6. Use exact section numbering from textbook. Sub-sections (1.4.1) go under parent (1.4).
+7. "count" must match array length for all exercise types.
+8. Never copy long explanatory paragraphs from textbook narrative text.
 
 JSON SCHEMA:
 {
-  "chapters": [{
-    "chapter_number": 1,
-    "chapter_name": "<full title as printed>",
-    "sections": [{
-      "section_number": "1.1",
-      "section_name": "<heading>",
-      "content": "<FULL teaching text - ALL paragraphs, definitions, explanations>",
-      "sub_sections": [{"sub_section_number":"1.1.1","sub_section_name":"","content":"<full text>","topics":[],"formulas":[],"key_terms":[{"term":"","definition":""}],"diagrams":[{"figure_id":"","description":"","labels":[]}],"chemical_equations":[],"derivations":[{"title":"","steps":""}],"worked_examples":[{"problem":"","solution":""}]}],
-      "topics": [],
-      "formulas": ["<formula with units>"],
-      "key_terms": [{"term":"","definition":""}],
-      "diagrams": [{"figure_id":"Fig 1.1","description":"what it shows","labels":["part1"]}],
-      "chemical_equations": [],
-      "derivations": [{"title":"","steps":"<full derivation>"}],
-      "worked_examples": [{"problem":"","solution":""}]
-    }],
-    "textbook_page_start": null, "textbook_page_end": null,
-    "introduction": "<intro paragraphs>",
-    "exercises": {
-      "mcq":{"count":0,"questions":[{"question":"","options":"(A)...(B)...(C)...(D)..."}]},
-      "assertion_reason":{"count":0,"questions":[]},
-      "fill_in_the_blanks":{"count":0,"questions":[]},
-      "true_false":{"count":0,"questions":[]},
-      "match_the_following":{"count":0,"questions":[]},
-      "very_short_answer":{"count":0,"questions":[]},
-      "short_answer":{"count":0,"questions":[]},
-      "long_answer":{"count":0,"questions":[]},
-      "numerical_problems":{"count":0,"questions":[]},
-      "diagram_based":{"count":0,"questions":[]},
-      "hots":{"count":0,"questions":[]},
-      "activity_based":{"count":0,"questions":[]}
-    },
-    "answer_keys":{"exercise_answers":[]},
-    "learning_objectives": [],
-    "chapter_summary":{"key_definitions":[],"important_laws":[],"important_reactions":[],"nature_points":[],"importance_points":[]}
-  }]
+    "chapters": [{
+        "chapter_number": 1,
+        "chapter_name": "<full title as printed>",
+        "sections": [{
+            "section_number": "1.1",
+            "section_name": "<heading>",
+            "content": "",
+            "sub_sections": [{"sub_section_number":"1.1.1","sub_section_name":"","content":"","topics":[],"formulas":[],"key_terms":[{"term":"","definition":""}],"diagrams":[{"figure_id":"","description":"","labels":[]}],"chemical_equations":[],"derivations":[{"title":"","steps":""}],"worked_examples":[{"problem":"","solution":""}]}],
+            "topics": [],
+            "formulas": ["<formula with units>"],
+            "key_terms": [{"term":"","definition":""}],
+            "diagrams": [{"figure_id":"Fig 1.1","description":"what it shows","labels":["part1"]}],
+            "chemical_equations": [],
+            "derivations": [{"title":"","steps":""}],
+            "worked_examples": [{"problem":"","solution":""}]
+        }],
+        "textbook_page_start": null, "textbook_page_end": null,
+        "introduction": "",
+        "exercises": {
+            "mcq":{"count":0,"questions":[{"question":"","options":"(A)...(B)...(C)...(D)..."}]},
+            "assertion_reason":{"count":0,"questions":[]},
+            "fill_in_the_blanks":{"count":0,"questions":[]},
+            "true_false":{"count":0,"questions":[]},
+            "match_the_following":{"count":0,"questions":[]},
+            "very_short_answer":{"count":0,"questions":[]},
+            "short_answer":{"count":0,"questions":[]},
+            "long_answer":{"count":0,"questions":[]},
+            "numerical_problems":{"count":0,"questions":[]},
+            "diagram_based":{"count":0,"questions":[]},
+            "hots":{"count":0,"questions":[]},
+            "activity_based":{"count":0,"questions":[]}
+        },
+        "answer_keys":{"exercise_answers":[]},
+        "learning_objectives": [],
+        "chapter_summary":{"key_definitions":[],"important_laws":[],"important_reactions":[],"nature_points":[],"importance_points":[]}
+    }]
 }
 
-Extract EVERY section, ALL exercises, ALL formulas/equations/derivations. NEVER skip content."""
+Extract EVERY chapter/section heading, topic, and exercise. Exclude body teaching text and long explanations."""
 
 
 def _build_schema_prompt(subject_name=''):
-    """Build a subject-adaptive system prompt for textbook structuring.
-    Strengthens content extraction and adds subject-specific field emphasis."""
+    """Build a subject-adaptive system prompt for structure-only textbook extraction.
+    Preserves chapter schema while excluding explanatory body text."""
     subj = (subject_name or '').lower()
 
     # Subject-specific emphasis
     if any(s in subj for s in ['chemistry', 'chemical']):
         field_emphasis = (
-            '\nCRITICAL FIELDS for Chemistry:\n'
-            '- "chemical_equations": Extract ALL balanced equations with conditions (temp, catalyst, pressure)\n'
-            '- "formulas": Include ALL formulas with units (molar mass, stoichiometry, concentrations)\n'
-            '- "key_terms": IUPAC names, nomenclature rules, element properties, periodic trends\n'
-            '- "derivations": Reaction mechanisms, electron transfer processes, equilibrium derivations\n'
-            '- "worked_examples": ALL numerical problems with mole calculations, titrations, etc.\n'
+            '\nCRITICAL FIELDS for Chemistry (structure-only):\n'
+            '- "chemical_equations": capture all equation strings with reaction conditions\n'
+            '- "formulas": include all formula expressions and symbols\n'
+            '- "key_terms": capture term names; keep definition minimal or empty\n'
+            '- "derivations": keep derivation titles; avoid long step text\n'
+            '- "worked_examples": keep problem statements; avoid long solution text\n'
         )
     elif any(s in subj for s in ['physics', 'physical']):
         field_emphasis = (
-            '\nCRITICAL FIELDS for Physics:\n'
-            '- "formulas": Extract ALL formulas with SI units and dimensional analysis\n'
-            '- "derivations": Step-by-step derivations of laws and equations (COMPLETE, not summarized)\n'
-            '- "worked_examples": ALL numerical solved examples with given data and full solutions\n'
-            '- "diagrams": Circuit diagrams, ray diagrams, force diagrams, graphs with labels\n'
-            '- "key_terms": Laws, principles, constants with their numerical values and units\n'
+            '\nCRITICAL FIELDS for Physics (structure-only):\n'
+            '- "formulas": capture formulas and units\n'
+            '- "derivations": keep law/theorem titles; avoid long derivation steps\n'
+            '- "worked_examples": keep problem statements; avoid full worked solution text\n'
+            '- "diagrams": capture figure identifiers and labels\n'
+            '- "key_terms": capture law/principle names and constants as short labels\n'
         )
     elif any(s in subj for s in ['math', 'algebra', 'geometry', 'calculus', 'trigonometry']):
         field_emphasis = (
-            '\nCRITICAL FIELDS for Mathematics:\n'
-            '- "formulas": ALL formulas, identities, and equations\n'
-            '- "derivations": Complete theorem proofs and step-by-step derivations (FULL text)\n'
-            '- "worked_examples": ALL solved examples with detailed step-by-step solutions\n'
-            '- "key_terms": Theorem statements, definitions, corollaries, axioms\n'
+            '\nCRITICAL FIELDS for Mathematics (structure-only):\n'
+            '- "formulas": capture formulas, identities, and equations\n'
+            '- "derivations": keep proof/derivation titles; avoid full proof text\n'
+            '- "worked_examples": keep problem statements; avoid detailed solution paragraphs\n'
+            '- "key_terms": capture theorem/axiom names as short labels\n'
         )
     elif any(s in subj for s in ['statistic']):
         field_emphasis = (
-            '\nCRITICAL FIELDS for Statistics:\n'
-            '- "formulas": ALL statistical formulas with complete notation explanations\n'
-            '- "worked_examples": ALL numerical examples with detailed step-by-step calculations\n'
-            '- "key_terms": Statistical measures, index types, method names with definitions\n'
-            '- "derivations": Formula derivations and proof of properties\n'
+            '\nCRITICAL FIELDS for Statistics (structure-only):\n'
+            '- "formulas": capture statistical formulas\n'
+            '- "worked_examples": keep question/problem text; avoid detailed calculations text\n'
+            '- "key_terms": capture measure/method names with minimal explanation\n'
+            '- "derivations": keep derivation titles; avoid long proof text\n'
         )
     elif any(s in subj for s in ['biology', 'botany', 'zoology']):
         field_emphasis = (
-            '\nCRITICAL FIELDS for Biology:\n'
-            '- "diagrams": ALL labeled diagram descriptions with parts listed\n'
-            '- "key_terms": Classifications, taxonomic hierarchies, scientific names with definitions\n'
-            '- "content": Process descriptions (photosynthesis, respiration, cell division) in FULL\n'
-            '- "sub_sections": Difference tables, life cycles, genetic crosses\n'
+            '\nCRITICAL FIELDS for Biology (structure-only):\n'
+            '- "diagrams": capture figure identifiers and labels\n'
+            '- "key_terms": capture classifications/scientific names; keep definitions minimal\n'
+            '- "topics": capture process names (photosynthesis, respiration, cell division)\n'
+            '- "sub_sections": preserve hierarchy for life cycles, differences, and genetics topics\n'
         )
     else:
-        field_emphasis = '\nExtract ALL fields thoroughly for each section.\n'
+        field_emphasis = '\nExtract all structural fields thoroughly. Do not include body text.\n'
 
-    prompt = f"""You are a textbook content extractor. Parse ALL content into the JSON schema below. Return ONLY valid JSON, no markdown fences.
+    prompt = f"""You are a textbook structure extractor. Parse textbook text into the JSON schema below while preserving structure and omitting explanatory body text. Return ONLY valid JSON, no markdown fences.
 
 RULES:
-1. "content" is the #1 MANDATORY field: capture the FULL teaching text for EVERY section. NEVER truncate or summarize. Include ALL paragraphs, explanations, definitions, descriptions, and examples.
-2. "topics": only named concepts (e.g. "Photosynthesis", "Ohm's Law", "Index Number"). NOT random words, sentence fragments, or OCR artifacts.
-3. EXERCISES: extract ALL questions by type. NEVER include answers in question arrays. Answers go in answer_keys.
-4. Use exact section numbering from textbook. Sub-sections (1.4.1) go under parent (1.4).
-5. "count" must match array length for all exercise types.
-6. EVERY section MUST have a non-empty "content" field with the complete teaching material.
-7. Do NOT skip any section, subsection, formula, equation, or exercise.
+1. Keep the JSON schema and keys exactly as shown. Do not add, remove, or rename keys.
+2. Extract structure only: chapter titles, section/sub-section numbering and names, topics, formulas, figures/diagrams metadata, exercises, answer_keys, learning_objectives, and chapter_summary.
+3. Do NOT include body paragraphs and explanations under headings. Keep "content" and "introduction" as empty strings.
+4. For explanation-heavy fields (e.g., key_terms.definition, derivations.steps, worked_examples.solution), keep text empty or minimal labels only.
+5. EXERCISES: extract ALL questions by type. NEVER include answers in question arrays. Answers go in answer_keys.
+6. Use exact section numbering from textbook. Sub-sections (1.4.1) go under parent (1.4).
+7. "count" must match array length for all exercise types.
+8. Do not skip any section heading, subsection heading, formula, diagram metadata, or exercise.
+9. Never copy long explanatory paragraphs from textbook narrative text.
 {field_emphasis}
 JSON SCHEMA:
 {{
@@ -1447,18 +1741,18 @@ JSON SCHEMA:
     "sections": [{{
       "section_number": "1.1",
       "section_name": "<heading>",
-      "content": "<FULL teaching text - ALL paragraphs, definitions, explanations. MANDATORY field>",
-      "sub_sections": [{{"sub_section_number":"1.1.1","sub_section_name":"","content":"<full text>","topics":[],"formulas":[],"key_terms":[{{"term":"","definition":""}}],"diagrams":[{{"figure_id":"","description":"","labels":[]}}],"chemical_equations":[],"derivations":[{{"title":"","steps":""}}],"worked_examples":[{{"problem":"","solution":""}}]}}],
+      "content": "",
+      "sub_sections": [{{"sub_section_number":"1.1.1","sub_section_name":"","content":"","topics":[],"formulas":[],"key_terms":[{{"term":"","definition":""}}],"diagrams":[{{"figure_id":"","description":"","labels":[]}}],"chemical_equations":[],"derivations":[{{"title":"","steps":""}}],"worked_examples":[{{"problem":"","solution":""}}]}}],
       "topics": [],
       "formulas": ["<formula with units>"],
       "key_terms": [{{"term":"","definition":""}}],
       "diagrams": [{{"figure_id":"Fig 1.1","description":"what it shows","labels":["part1"]}}],
       "chemical_equations": [],
-      "derivations": [{{"title":"","steps":"<full derivation>"}}],
+      "derivations": [{{"title":"","steps":""}}],
       "worked_examples": [{{"problem":"","solution":""}}]
     }}],
     "textbook_page_start": null, "textbook_page_end": null,
-    "introduction": "<intro paragraphs>",
+    "introduction": "",
     "exercises": {{
       "mcq":{{"count":0,"questions":[{{"question":"","options":"(A)...(B)...(C)...(D)..."}}]}},
       "assertion_reason":{{"count":0,"questions":[]}},
@@ -1479,7 +1773,7 @@ JSON SCHEMA:
   }}]
 }}
 
-Extract EVERY section, ALL exercises, ALL formulas/equations/derivations. NEVER skip content."""
+Extract EVERY chapter/section heading, topic, and exercise. Exclude body teaching text and long explanations."""
     return prompt
 
 
@@ -1492,7 +1786,7 @@ def _call_mistral_for_structuring(mistral_client, text_chunk, system_prompt=None
     user_content = f'{prompt_prefix}\n\nHere is the extracted textbook text:\n\n{text_chunk}' if prompt_prefix else f'Here is the extracted textbook text:\n\n{text_chunk}'
 
     log.info(f'Mistral API call: {len(user_content)} chars input, system prompt {len(system_prompt)} chars')
-    max_retries = 2
+    max_retries = 1
     for attempt in range(max_retries + 1):
         try:
             t0 = time.time()
@@ -1504,7 +1798,7 @@ def _call_mistral_for_structuring(mistral_client, text_chunk, system_prompt=None
                 ],
                 response_format={'type': 'json_object'},
                 temperature=0.0,
-                max_tokens=16384,
+                max_tokens=8192,
             )
             elapsed = time.time() - t0
             content = resp.choices[0].message.content.strip()
@@ -1635,7 +1929,10 @@ def _detect_document_type(full_text, pages):
 
     # Count chapter/unit boundaries
     chapter_boundary_re = re.compile(
-        r'^(?:---\s*Page\s+\d+\s*---\s*\n\s*)?(?:chapter|ch\.?|unit)\s+(\d+|[ivxlc]+)[\s.:]+(.+)',
+        r'^(?:---\s*Page\s+\d+\s*---\s*\n\s*)?'
+        r'(chapter|ch\.?|unit|lesson|part)\s+'
+        r'(\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)'
+        r'[\s.:\-]+(.+)',
         re.IGNORECASE | re.MULTILINE
     )
     chapter_matches = list(chapter_boundary_re.finditer(full_text))
@@ -1648,9 +1945,13 @@ def _detect_document_type(full_text, pages):
     # Detect chapter name from the first chapter marker if only 1
     chapter_info = None
     if chapter_matches:
+        marker_type = chapter_matches[0].group(1).strip().lower().replace('.', '')
+        number_raw = chapter_matches[0].group(2).strip()
         chapter_info = {
-            'number': chapter_matches[0].group(1).strip(),
-            'name': chapter_matches[0].group(2).strip(),
+            'marker_type': marker_type,
+            'number_raw': number_raw,
+            'number': _normalize_chapter_number(number_raw),
+            'name': chapter_matches[0].group(3).strip(),
         }
 
     # Decision logic
@@ -1679,13 +1980,13 @@ def _split_text_by_chapters(full_text):
     # List of regex patterns for chapter/unit/major-section boundaries
     patterns = [
         # Chapter 1: Name or Ch 1. Name  (strongest signal)
-        re.compile(r'^(?:---\s*Page\s+\d+\s*---\s*\n\s*)?(?:chapter|ch\.?)\s+(\d+|[ivxlc]+)[\s.:]*(.*)', re.IGNORECASE | re.MULTILINE),
+        re.compile(r'^(?:---\s*Page\s+\d+\s*---\s*\n\s*)?(?:chapter|ch\.?)\s+(\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[\s.:]*(.*)', re.IGNORECASE | re.MULTILINE),
         # Unit 1: Name
-        re.compile(r'^(?:---\s*Page\s+\d+\s*---\s*\n\s*)?(?:unit)\s+(\d+|[ivxlc]+)[\s.:]*(.*)', re.IGNORECASE | re.MULTILINE),
+        re.compile(r'^(?:---\s*Page\s+\d+\s*---\s*\n\s*)?(?:unit)\s+(\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[\s.:]*(.*)', re.IGNORECASE | re.MULTILINE),
         # 1. Title Case Name (requires dot after number and title-case name with 2+ words)
         re.compile(r'^(?:---\s*Page\s+\d+\s*---\s*\n\s*)?(\d+)\.[\s\t]+([A-Z][a-z]+(?:\s+[A-Za-z]+){1,})\s*$', re.MULTILINE),
         # Lesson 1: Name (common in some textbooks)
-        re.compile(r'^(?:---\s*Page\s+\d+\s*---\s*\n\s*)?(?:lesson)\s+(\d+|[ivxlc]+)[\s.:]*(.*)', re.IGNORECASE | re.MULTILINE),
+        re.compile(r'^(?:---\s*Page\s+\d+\s*---\s*\n\s*)?(?:lesson)\s+(\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[\s.:]*(.*)', re.IGNORECASE | re.MULTILINE),
     ]
 
     boundaries = []
@@ -1707,9 +2008,29 @@ def _split_text_by_chapters(full_text):
             # Skip if chapter number matches the page number (likely a running header like "4 BIOLOGY")
             if page_num and chapter_num_str.isdigit() and int(chapter_num_str) == page_num:
                 continue
-                
-            hint = f"{chapter_num_str} {title}".strip()
-            boundaries.append({'pos': m.start(), 'hint': hint, 'page': page_num})
+
+            marker = _parse_chapter_marker(match_text) or _parse_chapter_marker(f'{chapter_num_str} {title}')
+            marker_type = (marker or {}).get('kind', 'chapter')
+            normalized_num = (marker or {}).get('number')
+
+            marker_label = 'Chapter'
+            if marker_type == 'unit':
+                marker_label = 'Unit'
+            elif marker_type == 'lesson':
+                marker_label = 'Lesson'
+            elif marker_type == 'part':
+                marker_label = 'Part'
+
+            hint = f"{marker_label} {chapter_num_str} {title}".strip()
+            boundaries.append({
+                'pos': m.start(),
+                'hint': hint,
+                'page': page_num,
+                'marker_type': marker_type,
+                'number': normalized_num,
+                'number_raw': chapter_num_str,
+                'name': title,
+            })
 
     # Sort boundaries by position and remove duplicates (overlaps)
     boundaries.sort(key=lambda x: x['pos'])
@@ -1718,12 +2039,12 @@ def _split_text_by_chapters(full_text):
     title_counts = {}
     for b in boundaries:
         # Normalize title for comparison
-        title_part = re.sub(r'^\d+\s*', '', b['hint']).strip().lower()
+        title_part = str(b.get('name') or re.sub(r'^\d+\s*', '', b['hint'])).strip().lower()
         title_counts[title_part] = title_counts.get(title_part, 0) + 1
     
     filtered_boundaries = []
     for b in boundaries:
-        title_part = re.sub(r'^\d+\s*', '', b['hint']).strip().lower()
+        title_part = str(b.get('name') or re.sub(r'^\d+\s*', '', b['hint'])).strip().lower()
         if title_counts.get(title_part, 0) >= 3:
             # This title appears too many times - it's a running header, skip all of them
             continue
@@ -1764,15 +2085,22 @@ def _merge_chapters(master_list, new_chapters):
 
     for new_ch in new_chapters:
         # Try to find existing chapter by number or name
-        num = new_ch.get('chapter_number')
+        num = _normalize_chapter_number(new_ch.get('chapter_number'))
         name = str(new_ch.get('chapter_name', '')).lower().strip()
         
         existing = None
         for ch in master_list:
-            if num is not None and ch.get('chapter_number') == num:
+            existing_num = _normalize_chapter_number(ch.get('chapter_number'))
+            existing_name = str(ch.get('chapter_name', '')).lower().strip()
+
+            if name and existing_name and name == existing_name:
                 existing = ch
                 break
-            if name and name == str(ch.get('chapter_name', '')).lower().strip():
+
+            if num is not None and existing_num == num:
+                # If names conflict, treat as different chapters even if number matches.
+                if name and existing_name and name != existing_name:
+                    continue
                 existing = ch
                 break
         
@@ -2091,10 +2419,12 @@ def _clean_chapter_data(chapter):
     return chapter
 
 
-def _build_fallback_chapters(result):
+def _build_fallback_chapters(result, detected_chapter=None):
     """Basic rule-based chapter extraction when Mistral is not available."""
     chapters = []
-    chapter_re = re.compile(r'^(?:chapter|ch\.?)\s+(\d+|[ivxlc]+)[\s.:]+(.+)',
+    chapter_re = re.compile(r'^(?:chapter|ch\.?|unit|lesson|part)\s+'
+                            r'(\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)'
+                            r'[\s.:]+(.+)',
                             re.IGNORECASE)
     section_re = re.compile(r'^(\d+\.\d+(?:\.\d+)?)\s+(.+)')
     exercise_header_re = re.compile(
@@ -2152,12 +2482,11 @@ def _build_fallback_chapters(result):
             if m:
                 # Save previous chapter
                 if current_chapter:
-                    if current_text_lines:
-                        current_chapter['introduction'] = '\n'.join(
-                            current_text_lines[:10]).strip()
                     chapters.append(current_chapter)
+
+                detected_num = _normalize_chapter_number(m.group(1).strip())
                 current_chapter = {
-                    'chapter_number': len(chapters) + 1,
+                    'chapter_number': detected_num if detected_num is not None else (len(chapters) + 1),
                     'chapter_name': m.group(2).strip(),
                     'sections': [],
                     'textbook_page_start': p['page_number'],
@@ -2219,21 +2548,25 @@ def _build_fallback_chapters(result):
                     current_chapter['textbook_page_end'] = p['page_number']
 
     if current_chapter:
-        if current_text_lines:
-            current_chapter['introduction'] = '\n'.join(
-                current_text_lines[:10]).strip()
         chapters.append(current_chapter)
 
     # If no chapters detected, create a single chapter from all content
     if not chapters:
-        full_text = '\n'.join(p['text'] for p in result['pages'] if p['text'])
+        fallback_num = 1
+        fallback_name = 'Full Document'
+        if isinstance(detected_chapter, dict):
+            if detected_chapter.get('number') is not None:
+                fallback_num = detected_chapter['number']
+            if detected_chapter.get('name'):
+                fallback_name = detected_chapter['name']
+
         chapters.append({
-            'chapter_number': 1,
-            'chapter_name': 'Full Document',
+            'chapter_number': fallback_num,
+            'chapter_name': fallback_name,
             'sections': [],
             'textbook_page_start': 1,
             'textbook_page_end': len(result['pages']),
-            'introduction': full_text[:1000],
+            'introduction': '',
             'exercises': copy.deepcopy(_empty_exercises),
             'answer_keys': {'exercise_answers': []},
             'learning_objectives': [],
@@ -2289,6 +2622,7 @@ def _process_segment(client, chapter_hint, seg_text, seg_idx, total_segments,
 
     log.info(f'[Parallel] Processing segment {seg_idx + 1}/{total_segments}: "{chapter_hint}"')
     segment_chapters = []
+    detected_hint = _parse_chapter_marker(chapter_hint) or {}
 
     if len(seg_text) > target_chunk_size:
         pages_split = re.split(r'(--- Page \d+ ---)', seg_text)
@@ -2323,17 +2657,21 @@ def _process_segment(client, chapter_hint, seg_text, seg_idx, total_segments,
                 f'This is a segment of chapter "{chapter_hint}" from a {subject_name or "textbook"}. '
                 f'Board: {board or "N/A"}, Standard: {standard or "N/A"}. '
                 f'EXERCISE HINT: Exercises likely at: {ex_ranges_str or "end of chapter"}. '
-                f'CRITICAL: Extract ALL content, formulas, equations, derivations, and diagrams. '
-                f'The "content" field in each section must contain the COMPLETE teaching material. '
-                f'Do not skip ANY section or subsection. Extract ALL exercises by type.'
+                f'CRITICAL: Extract structure only: headings, subheadings, topics, formulas, '
+                f'figure metadata, and exercises. Keep section/sub-section "content" and chapter '
+                f'"introduction" as empty strings. Do not copy explanatory body text. '
+                f'Do not skip any section or subsection heading. Extract ALL exercises by type.'
             )
 
             parsed = _call_mistral_for_structuring(client, chunk_text,
                                                     system_prompt=schema_prompt,
                                                     prompt_prefix=prefix)
             if parsed and 'chapters' in parsed:
+                for ch in parsed['chapters']:
+                    _apply_detected_chapter_info(ch, detected_hint)
                 segment_chapters.extend(parsed['chapters'])
             elif parsed and ('chapter_name' in parsed or 'sections' in parsed):
+                _apply_detected_chapter_info(parsed, detected_hint)
                 segment_chapters.append(parsed)
     else:
         prefix = (
@@ -2342,15 +2680,19 @@ def _process_segment(client, chapter_hint, seg_text, seg_idx, total_segments,
             f'Board: {board or "N/A"}, Standard: {standard or "N/A"}. '
             f'EXERCISE HINT: Exercises likely at: {ex_ranges_str or "end of chapter"}. '
             f'Extract EVERY section, subsection, formula, equation, derivation, diagram, '
-            f'worked example, and ALL exercises by type. No truncation allowed. '
-            f'The "content" field must contain the COMPLETE teaching material for each section.'
+            f'worked example metadata, and ALL exercises by type. '
+            f'Keep section/sub-section "content" and chapter "introduction" empty. '
+            f'Do not include body/explanatory text under headings.'
         )
         parsed = _call_mistral_for_structuring(client, seg_text,
                                                 system_prompt=schema_prompt,
                                                 prompt_prefix=prefix)
         if parsed and 'chapters' in parsed:
+            for ch in parsed['chapters']:
+                _apply_detected_chapter_info(ch, detected_hint)
             segment_chapters.extend(parsed['chapters'])
         elif parsed and ('chapter_name' in parsed or 'sections' in parsed):
+            _apply_detected_chapter_info(parsed, detected_hint)
             segment_chapters.append(parsed)
 
     log.info(f'[Parallel] Segment "{chapter_hint}" done: {len(segment_chapters)} chapter(s)')
@@ -2439,6 +2781,7 @@ def format_textbook(result, filename, options):
     language = options.get('language', 'en')
     subject_key = options.get('subject_key', '')
     subject_name = options.get('subject_name', '')
+    pdf_metadata = result.get('metadata', {}).get('pdf_metadata', {})
 
     full_text = '\n\n'.join(
         f'--- Page {p["page_number"]} ---\n{p["text"]}'
@@ -2451,10 +2794,33 @@ def format_textbook(result, filename, options):
         subject_name = _detect_subject(result['pages'])
         if subject_name:
             log.info(f'Subject auto-detected as: {subject_name}')
-            subject_key = subject_key or subject_name.lower().replace(' ', '-')
+            subject_key = subject_key or _slugify_text(subject_name)
+
+    # Ensure subject_key is always available when subject_name exists
+    if not subject_key and subject_name:
+        subject_key = _slugify_text(subject_name)
+
+    # === AUTO-FILL TEXTBOOK METADATA (board/standard/medium) ===
+    detected_meta = _detect_textbook_metadata(result['pages'], pdf_metadata)
+    if not board and detected_meta.get('board'):
+        board = detected_meta['board']
+        log.info(f'Board auto-detected as: {board}')
+    if not standard and detected_meta.get('standard'):
+        standard = detected_meta['standard']
+        log.info(f'Standard auto-detected as: {standard}')
+    if not medium and detected_meta.get('medium'):
+        medium = detected_meta['medium']
+        log.info(f'Medium auto-detected as: {medium}')
 
     # === AUTO-DETECT DOCUMENT TYPE ===
     doc_type, chapter_info = _detect_document_type(full_text, result['pages'])
+
+    # Fallback: derive chapter/unit marker from filename when PDF text markers are weak.
+    if not chapter_info:
+        chapter_info = _parse_chapter_marker(Path(filename).stem)
+        if chapter_info:
+            chapter_info['marker_type'] = chapter_info.get('kind', 'chapter')
+            log.info(f'Chapter marker inferred from filename: {chapter_info}')
 
     # Detect exercise ranges to provide as hints
     exercise_ranges = _detect_exercise_pages(result['pages'])
@@ -2466,8 +2832,8 @@ def format_textbook(result, filename, options):
     if any(s in subj_lower for s in ['physics', 'physical']):
         subject_hints = (
             'SUBJECT: PHYSICS. Pay EXTREME attention to: '
-            'formulas (with units and dimensions), derivations (step-by-step), '
-            'numerical solved examples, diagrams (circuit, ray, force diagrams), '
+            'formula expressions (with units), derivation titles, '
+            'problem statements, diagrams (circuit, ray, force diagrams), '
             'laws and principles, SI units. '
             'For exercises: look for numerical problems with given data, '
             'assertion-reason questions, diagram-based questions. '
@@ -2478,15 +2844,15 @@ def format_textbook(result, filename, options):
             'chemical equations (balanced, with conditions like temp/catalyst/pressure), '
             'reaction mechanisms, IUPAC nomenclature, structural formulas, '
             'periodic table trends, electron configurations, '
-            'mole calculations, stoichiometry problems. '
+            'mole calculation problem statements, stoichiometry topics. '
             'For exercises: look for balancing equations, reaction prediction, '
             'numerical problems with molar mass calculations. '
         )
     elif any(s in subj_lower for s in ['biology', 'biological', 'botany', 'zoology']):
         subject_hints = (
             'SUBJECT: BIOLOGY. Pay EXTREME attention to: '
-            'classification hierarchies, process descriptions (photosynthesis, respiration, '
-            'cell division, digestion), labeled diagram descriptions, '
+            'classification hierarchies, process names (photosynthesis, respiration, '
+            'cell division, digestion), labeled diagram metadata, '
             'difference tables, life cycles, genetic crosses, '
             'ecological concepts, anatomical structures. '
             'For exercises: look for diagram-based questions, '
@@ -2495,8 +2861,8 @@ def format_textbook(result, filename, options):
     elif any(s in subj_lower for s in ['math', 'mathematics', 'algebra', 'geometry', 'calculus']):
         subject_hints = (
             'SUBJECT: MATHEMATICS. Pay EXTREME attention to: '
-            'theorem statements and COMPLETE proofs, formulas and identities, '
-            'worked examples with step-by-step solutions, constructions, '
+            'theorem names, formulas and identities, '
+            'worked example problem statements, constructions, '
             'coordinate geometry problems, trigonometric identities. '
             'For exercises: extract ALL numerical problems with given data, '
             'prove-that questions, construction problems. '
@@ -2505,7 +2871,7 @@ def format_textbook(result, filename, options):
         subject_hints = (
             'SUBJECT: STATISTICS. Pay EXTREME attention to: '
             'index numbers, correlation, regression, time series, '
-            'formulas with detailed notation, worked examples. '
+            'formula expressions, worked example problem statements. '
         )
     else:
         subject_hints = f'Subject: {subject_name or "academic"}. '
@@ -2530,7 +2896,7 @@ def format_textbook(result, filename, options):
                 client = None
 
         if client:
-            TARGET_CHUNK_SIZE = 20000
+            TARGET_CHUNK_SIZE = 45000
 
             log.info(f'=== STRUCTURING START === text={len(full_text)} chars, '
                      f'subject={subject_name}, chunk_target={TARGET_CHUNK_SIZE}')
@@ -2538,8 +2904,8 @@ def format_textbook(result, filename, options):
 
             if doc_type == 'single_chapter':
                 # ====== SINGLE CHAPTER MODE ======
-                ch_name = chapter_info['name'] if chapter_info else Path(filename).stem
-                ch_num = chapter_info['number'] if chapter_info else '1'
+                ch_name = chapter_info['name'] if chapter_info and chapter_info.get('name') else Path(filename).stem
+                ch_num = chapter_info['number'] if chapter_info and chapter_info.get('number') is not None else '1'
                 num_chunks = max(1, (len(full_text) + TARGET_CHUNK_SIZE - 1) // TARGET_CHUNK_SIZE)
                 log.info(f'Single chapter mode: "{ch_name}" (Chapter {ch_num}), '
                          f'will need ~{num_chunks} chunk(s)')
@@ -2553,16 +2919,19 @@ def format_textbook(result, filename, options):
                         f'Board: {board or "N/A"}, Standard: {standard or "N/A"}. '
                         f'There are {len(result["pages"])} pages total. '
                         f'EXERCISE HINT: Exercises likely at: {ex_ranges_str or "end of chapter"}. '
-                        f'CRITICAL: This is the ENTIRE chapter. Extract EVERY section, subsection, '
-                        f'formula, equation, derivation, diagram, worked example, '
-                        f'and ALL exercises. The "content" field must contain the COMPLETE '
-                        f'teaching material for each section. Do NOT truncate or summarize. '
-                        f'Output exactly ONE chapter object with ALL its content.'
+                        f'CRITICAL: This is the ENTIRE chapter. Extract EVERY section and subsection '
+                        f'heading, topics, formulas, equation strings, figure metadata, worked example '
+                        f'metadata, and ALL exercises. Keep section/sub-section "content" and '
+                        f'chapter "introduction" as empty strings. Do NOT copy body/explanatory text. '
+                        f'Output exactly ONE chapter object with complete structural metadata.'
                     )
                     parsed = _call_mistral_for_structuring(client, full_text, system_prompt=schema_prompt, prompt_prefix=prefix)
                     if parsed and 'chapters' in parsed:
+                        for ch in parsed['chapters']:
+                            _apply_detected_chapter_info(ch, chapter_info or {})
                         final_chapters.extend(parsed['chapters'])
                     elif parsed and ('chapter_name' in parsed or 'sections' in parsed):
+                        _apply_detected_chapter_info(parsed, chapter_info or {})
                         final_chapters.append(parsed)
                 else:
                     # Large chapter - split into page chunks with overlap
@@ -2615,15 +2984,19 @@ def format_textbook(result, filename, options):
                             f'"{ch_name}" (Chapter {ch_num}) from a {subject_name or "textbook"}. '
                             f'Board: {board or "N/A"}, Standard: {standard or "N/A"}. '
                             f'EXERCISE HINT: Exercises likely at: {ex_ranges_str or "end of chapter"}. '
-                            f'Extract ALL sections, subsections, formulas, equations, derivations, '
-                            f'diagrams, worked examples, and exercises found in this segment. '
-                            f'The "content" field must be COMPLETE. Do not truncate.'
+                            f'Extract all section/sub-section headings, topics, formulas, equations, '
+                            f'diagrams, worked example metadata, and exercises found in this segment. '
+                            f'Keep section/sub-section "content" and chapter "introduction" empty. '
+                            f'Do not copy explanatory body text.'
                         )
                         
                         parsed = _call_mistral_for_structuring(client, chunk_text, system_prompt=schema_prompt, prompt_prefix=prefix)
                         if parsed and 'chapters' in parsed:
+                            for ch in parsed['chapters']:
+                                _apply_detected_chapter_info(ch, chapter_info or {})
                             chapter_parts.extend(parsed['chapters'])
                         elif parsed and ('chapter_name' in parsed or 'sections' in parsed):
+                            _apply_detected_chapter_info(parsed, chapter_info or {})
                             chapter_parts.append(parsed)
                     
                     _merge_chapters(final_chapters, chapter_parts)
@@ -2663,7 +3036,12 @@ def format_textbook(result, filename, options):
     # Fallback if no chapters detected
     if not final_chapters:
         log.info('Using rule-based textbook structuring (AI failed or was missing)...')
-        final_chapters = _build_fallback_chapters(result)
+        final_chapters = _build_fallback_chapters(result, detected_chapter=chapter_info)
+
+    # Ensure detected chapter/unit marker is propagated for single-chapter documents.
+    if doc_type == 'single_chapter' and isinstance(chapter_info, dict):
+        for ch in final_chapters:
+            _apply_detected_chapter_info(ch, chapter_info)
 
     # Post-process all chapters: clean garbage data
     for ch in final_chapters:
@@ -2757,6 +3135,13 @@ def format_textbook(result, filename, options):
         'total_chapters': len(final_chapters),
         'meta': {
             'publisher': options.get('publisher', ''),
+            'detected_document': {
+                'type': doc_type,
+                'marker_type': (chapter_info.get('marker_type') or chapter_info.get('kind')) if isinstance(chapter_info, dict) else None,
+                'number_raw': chapter_info.get('number_raw') if isinstance(chapter_info, dict) else None,
+                'number': chapter_info.get('number') if isinstance(chapter_info, dict) else None,
+                'name': chapter_info.get('name') if isinstance(chapter_info, dict) else None,
+            },
             'additional_sections': [],
             'authors': [],
             'subject_adviser': '',
@@ -3458,6 +3843,7 @@ def convert():
         'extract_images': extract_images,
         'include_base64': include_base64,
         'mistral_api_key': mistral_api_key,
+        'mistral_ocr_mode': request.form.get('mistral_ocr_mode', 'auto'),
     }
     if system_prompt:
         options['system_prompt'] = system_prompt
@@ -3499,8 +3885,22 @@ def convert():
         base_name = Path(safe_name).stem
         is_jsonl = output_format == 'jsonl'
         ext = 'jsonl' if is_jsonl else 'json'
-        output_filename = f'{base_name}_{output_format}.{ext}'
+        if output_format == 'textbook' and isinstance(formatted, dict):
+            output_filename = _compose_textbook_output_filename(
+                formatted,
+                fallback_base=base_name,
+                ext=ext,
+            )
+        else:
+            output_filename = f'{base_name}_{output_format}.{ext}'
+
         output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+
+        # Avoid accidental overwrite when the same metadata-based filename is generated repeatedly.
+        if os.path.exists(output_path):
+            ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+            output_filename = f'{Path(output_filename).stem}_{ts}.{ext}'
+            output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
 
         # Write to disk
         with open(output_path, 'w', encoding='utf-8') as f:
