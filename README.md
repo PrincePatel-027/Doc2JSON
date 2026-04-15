@@ -22,13 +22,26 @@ git clone https://github.com/PrincePatel-027/Doc2JSON.git
 cd Doc2JSON
 ```
 
-**2. Create a Virtual Environment**:
+**2. One-click start (recommended)**:
+After cloning, just run the starter script. It will automatically create `.venv`, install dependencies, start the backend, and open the frontend in your browser.
+
+- **Windows**: Double-click `start_doc2json.bat`
+- **Mac**: Double-click `start_doc2json.command`
+- **Linux**:
+  ```bash
+  ./start_doc2json.sh
+  ```
+
+**3. Manual setup (alternative)**:
+If you prefer doing setup manually, use the steps below.
+
+**4. Create a Virtual Environment**:
 It is strongly recommended to use a virtual environment so the app's dependencies remain isolated.
 ```bash
 python -m venv .venv
 ```
 
-**3. Activate the Virtual Environment**:
+**5. Activate the Virtual Environment**:
 - **Windows (Command Prompt / PowerShell)**:
   ```powershell
   .venv\Scripts\activate
@@ -38,13 +51,13 @@ python -m venv .venv
   source .venv/bin/activate
   ```
 
-**4. Install Dependencies**:
+**6. Install Dependencies**:
 With the virtual environment active, install the required packages using pip:
 ```bash
 pip install -r requirements.txt
 ```
 
-**5. (Optional) Set up Environment Variables**:
+**7. (Optional) Set up Environment Variables**:
 If you plan to use Mistral AI for sophisticated OCR or OpenAI for structural validation, you will need to provide API keys as environment variables before running:
 ```bash
 # Windows
@@ -56,13 +69,13 @@ export MISTRAL_API_KEY="your_mistral_key_here"
 export OPENAI_API_KEY="your_openai_key_here"
 ```
 
-**6. Run the Application**:
+**8. Run the Application**:
 Launch the built-in Flask development server using python:
 ```bash
 python app.py
 ```
 
-**7. Open the App in Your Browser**:
+**9. Open the App in Your Browser**:
 Once the terminal outputs that the application is running, open a web browser and go to your localhost:
 [http://localhost:5000](http://localhost:5000)
 
