@@ -25,11 +25,11 @@ cd Doc2JSON
 **2. One-click start (recommended)**:
 After cloning, just run the starter script. It will automatically create `.venv`, install dependencies, start the backend, and open the frontend in your browser.
 
-- **Windows**: Double-click `start_doc2json.bat`
-- **Mac**: Double-click `start_doc2json.command`
+- **Windows**: Double-click `doc2json-windows.bat`
+- **Mac**: Double-click `doc2json-mac.command`
 - **Linux**:
   ```bash
-  ./start_doc2json.sh
+  ./doc2json-linux.sh
   ```
 
 **3. Manual setup (alternative)**:
